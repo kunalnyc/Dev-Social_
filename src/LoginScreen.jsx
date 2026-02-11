@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   Image,
+  Animated,
+  StatusBar,
+  ScrollView,
 } from 'react-native';
 import auth from "@react-native-firebase/auth";
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
@@ -24,12 +27,83 @@ const LoginScreen = ({ navigation }) => {
   const [secureTextEntry, setSecureTextEntry] = useState(true);
   const [loading, setLoading] = useState(false);
   const [focusedInput, setFocusedInput] = useState(null);
+  const [emailError, setEmailError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+  
+  // Animation values
+  const fadeAnim = useRef(new Animated.Value(0)).current;
+  const slideUpAnim = useRef(new Animated.Value(40)).current;
+  const logoScale = useRef(new Animated.Value(0.85)).current;
+  const buttonScale = useRef(new Animated.Value(1)).current;
+  
+  const passwordInputRef = useRef(null);
+
+  useEffect(() => {
+    // Smooth entrance animations
+    Animated.parallel([
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 1000,
+        useNativeDriver: true,
+      }),
+      Animated.spring(logoScale, {
+        toValue: 1,
+        tension: 40,
+        friction: 8,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideUpAnim, {
+        toValue: 0,
+        duration: 800,
+        delay: 100,
+        useNativeDriver: true,
+      }),
+    ]).start();
+  }, []);
+
+  const validateEmail = (email) => {
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    return emailRegex.test(email);
+  };
 
   const handleLogin = async () => {
-    if (!email || !password) {
-      alert("Please enter email and password");
-      return;
+    // Reset errors
+    setEmailError('');
+    setPasswordError('');
+
+    // Validation
+    let hasError = false;
+    if (!email) {
+      setEmailError('Email is required');
+      hasError = true;
+    } else if (!validateEmail(email)) {
+      setEmailError('Please enter a valid email');
+      hasError = true;
     }
+
+    if (!password) {
+      setPasswordError('Password is required');
+      hasError = true;
+    } else if (password.length < 6) {
+      setPasswordError('Password must be at least 6 characters');
+      hasError = true;
+    }
+
+    if (hasError) return;
+
+    // Button animation
+    Animated.sequence([
+      Animated.timing(buttonScale, {
+        toValue: 0.96,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+      Animated.timing(buttonScale, {
+        toValue: 1,
+        duration: 100,
+        useNativeDriver: true,
+      }),
+    ]).start();
 
     setLoading(true);
     try {
@@ -38,13 +112,15 @@ const LoginScreen = ({ navigation }) => {
     } catch (error) {
       console.log(error);
       if (error.code === "auth/user-not-found") {
-        alert("No account found with this email");
+        setEmailError("No account found with this email");
       } else if (error.code === "auth/wrong-password") {
-        alert("Incorrect password");
+        setPasswordError("Incorrect password");
       } else if (error.code === "auth/invalid-email") {
-        alert("Invalid email address");
+        setEmailError("Invalid email address");
+      } else if (error.code === "auth/invalid-credential") {
+        setEmailError("Invalid email or password");
       } else {
-        alert(error.message);
+        setEmailError(error.message);
       }
     } finally {
       setLoading(false);
@@ -53,10 +129,12 @@ const LoginScreen = ({ navigation }) => {
 
   const handleGoogleLogin = () => {
     console.log('Google login');
+    // Implement Google Sign-In
   };
 
-  const handleFacebookLogin = () => {
-    console.log('Facebook login');
+  const handleGithubLogin = () => {
+    console.log('GitHub login');
+    // Implement GitHub Sign-In
   };
 
   const handleSignup = () => {
@@ -64,423 +142,467 @@ const LoginScreen = ({ navigation }) => {
   };
 
   const handleForgotPassword = () => {
-    console.log('Navigate to forgot password');
+    navigation.navigate('ForgotPassword');
   };
 
   const toggleSecureEntry = () => {
     setSecureTextEntry(!secureTextEntry);
   };
 
-  const clearEmail = () => {
-    setEmail('');
-  };
-
   return (
     <SafeAreaView style={styles.safeArea}>
-      <LinearGradient
-        colors={['#0A0A0A', '#1A1A1A', '#2A1B3D']}
-        style={styles.gradientBackground}
-      >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.container}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
+      <StatusBar barStyle="light-content" backgroundColor="#FFFFFF" />
+      <View style={styles.container}>
+        <ScrollView 
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          {/* Logo at Top Center */}
-          <View style={styles.logoContainer}>
-            <Image
-              source={require('./assets/DSLOGOnew.png')}
-              style={styles.logo}
-              resizeMode="contain"
-            />
-          </View>
+          {/* Brand Header */}
+          <Animated.View 
+            style={[
+              styles.brandSection,
+              {
+                opacity: fadeAnim,
+                transform: [{ scale: logoScale }]
+              }
+            ]}
+          >
+            <View style={styles.logoCircle}>
+              <Image
+                source={require('./assets/DSLOGOnew.png')}
+                style={styles.logo}
+                resizeMode="contain"
+              />
+            </View>
+            <Text style={styles.brandName}>DreamSpace</Text>
+            <Text style={styles.brandTagline}>Your creative workspace</Text>
+          </Animated.View>
 
-          {/* Welcome Section */}
-          <View style={styles.headerContainer}>
-            <Text style={[styles.welcomeText, { fontSize: isSmallScreen ? 26 : 32 }]}>
-              Welcome Back
-            </Text>
-            <Text style={[styles.subtitleText, { fontSize: isSmallScreen ? 14 : 16 }]}>
-              Sign in to continue your journey
-            </Text>
-          </View>
+          {/* Main Content */}
+          <Animated.View 
+            style={[
+              styles.contentSection,
+              {
+                opacity: fadeAnim,
+                transform: [{ translateY: slideUpAnim }]
+              }
+            ]}
+          >
+            {/* Welcome Text */}
+            <View style={styles.welcomeSection}>
+              <Text style={styles.welcomeTitle}>Welcome back</Text>
+              <Text style={styles.welcomeSubtitle}>Sign in to your account</Text>
+            </View>
 
-          {/* Login Form */}
-          <View style={styles.formContainer}>
-            {/* Email Input */}
-            <View style={styles.inputWrapper}>
-              <Text style={[
-                styles.inputLabel,
-                { fontSize: isSmallScreen ? 11 : 12 }
-              ]}>
-                <Icon name="email-outline" size={isSmallScreen ? 12 : 14} color="#C81BD4" /> EMAIL
-              </Text>
-              <View style={[
-                styles.inputContainer,
-                focusedInput === 'email' && styles.inputContainerFocused,
-                { height: isSmallScreen ? 48 : 56 }
-              ]}>
-                <TextInput
-                  style={[
-                    styles.input,
-                    { fontSize: isSmallScreen ? 14 : 16 }
-                  ]}
-                  placeholder="you@example.com"
-                  placeholderTextColor="#666"
-                  value={email}
-                  onChangeText={setEmail}
-                  autoCapitalize="none"
-                  keyboardType="email-address"
-                  // onFocus={() => setFocusedInput('email')}
-                  // onBlur={() => setFocusedInput(null)}
-                  // returnKeyType="next"
-                  onSubmitEditing={() => {
-                    // Focus on password field when "next" is pressed
-                    passwordInputRef?.current?.focus();
-                  }}
-                />
-                {/* {email.length > 0 && (
+            {/* Login Form */}
+            <View style={styles.formSection}>
+              {/* Email Input */}
+              <View style={styles.inputGroup}>
+                <Text style={styles.label}>Email</Text>
+                <View style={[
+                  styles.inputWrapper,
+                  focusedInput === 'email' && styles.inputWrapperFocused,
+                  emailError && styles.inputWrapperError,
+                ]}>
+                  <Icon 
+                    name="email-outline" 
+                    size={20} 
+                    color={emailError ? '#EF4444' : focusedInput === 'email' ? '#8B5CF6' : '#9CA3AF'} 
+                    style={styles.inputIcon}
+                  />
+                  <TextInput
+                    style={styles.textInput}
+                    placeholder="Enter your email"
+                    placeholderTextColor="#9CA3AF"
+                    value={email}
+                    onChangeText={(text) => {
+                      setEmail(text);
+                      setEmailError('');
+                    }}
+                    autoCapitalize="none"
+                    keyboardType="email-address"
+                    onFocus={() => setFocusedInput('email')}
+                    onBlur={() => setFocusedInput(null)}
+                    returnKeyType="next"
+                    onSubmitEditing={() => passwordInputRef?.current?.focus()}
+                    editable={!loading}
+                  />
+                </View>
+                {emailError ? (
+                  <Text style={styles.errorText}>{emailError}</Text>
+                ) : null}
+              </View>
+
+              {/* Password Input */}
+              <View style={styles.inputGroup}>
+                <View style={styles.labelRow}>
+                  <Text style={styles.label}>Password</Text>
                   <TouchableOpacity 
-                    onPress={clearEmail}
+                    onPress={handleForgotPassword}
+                    disabled={loading}
                     hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   >
-                    <Icon name="close-circle" size={isSmallScreen ? 16 : 18} color="#666" />
+                    <Text style={styles.forgotText}>Forgot password?</Text>
                   </TouchableOpacity>
-                )} */}
-              </View>
-            </View>
-
-            {/* Password Input */}
-            <View style={styles.inputWrapper}>
-              <Text style={[
-                styles.inputLabel,
-                { fontSize: isSmallScreen ? 11 : 12 }
-              ]}>
-                <Icon name="lock-outline" size={isSmallScreen ? 12 : 14} color="#C81BD4" /> PASSWORD
-              </Text>
-              <View style={[
-                styles.inputContainer,
-                focusedInput === 'password' && styles.inputContainerFocused,
-                { height: isSmallScreen ? 48 : 56 }
-              ]}>
-                <TextInput
-                  ref={passwordInputRef}
-                  style={[
-                    styles.input,
-                    { fontSize: isSmallScreen ? 14 : 16, flex: 1 }
-                  ]}
-                  placeholder="••••••••"
-                  placeholderTextColor="#666"
-                  value={password}
-                  onChangeText={setPassword}
-                  secureTextEntry={secureTextEntry}
-                  // onFocus={() => setFocusedInput('password')}
-                  // onBlur={() => setFocusedInput(null)}
-                  returnKeyType="go"
-                  onSubmitEditing={handleLogin}
-                />
-                <TouchableOpacity 
-                  onPress={toggleSecureEntry}
-                  hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                >
+                </View>
+                <View style={[
+                  styles.inputWrapper,
+                  focusedInput === 'password' && styles.inputWrapperFocused,
+                  passwordError && styles.inputWrapperError,
+                ]}>
                   <Icon 
-                    name={secureTextEntry ? "eye-off-outline" : "eye-outline"} 
-                    size={isSmallScreen ? 18 : 20} 
-                    color="#666" 
+                    name="lock-outline" 
+                    size={20} 
+                    color={passwordError ? '#EF4444' : focusedInput === 'password' ? '#8B5CF6' : '#9CA3AF'} 
+                    style={styles.inputIcon}
                   />
+                  <TextInput
+                    ref={passwordInputRef}
+                    style={[styles.textInput, { flex: 1 }]}
+                    placeholder="Enter your password"
+                    placeholderTextColor="#9CA3AF"
+                    value={password}
+                    onChangeText={(text) => {
+                      setPassword(text);
+                      setPasswordError('');
+                    }}
+                    secureTextEntry={secureTextEntry}
+                    onFocus={() => setFocusedInput('password')}
+                    onBlur={() => setFocusedInput(null)}
+                    returnKeyType="go"
+                    onSubmitEditing={handleLogin}
+                    editable={!loading}
+                  />
+                  <TouchableOpacity 
+                    onPress={toggleSecureEntry}
+                    disabled={loading}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+                  >
+                    <Icon 
+                      name={secureTextEntry ? "eye-off-outline" : "eye-outline"} 
+                      size={20} 
+                      color="#9CA3AF" 
+                    />
+                  </TouchableOpacity>
+                </View>
+                {passwordError ? (
+                  <Text style={styles.errorText}>{passwordError}</Text>
+                ) : null}
+              </View>
+
+              {/* Sign In Button */}
+              <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
+                <TouchableOpacity 
+                  style={[styles.signInButton, loading && styles.signInButtonDisabled]}
+                  onPress={handleLogin}
+                  disabled={loading}
+                  activeOpacity={0.85}
+                >
+                  <LinearGradient
+                    colors={['#8B5CF6', '#7C3AED']}
+                    style={styles.signInGradient}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                  >
+                    {loading ? (
+                      <View style={styles.loadingContent}>
+                        <Icon name="loading" size={20} color="#FFFFFF" />
+                        <Text style={styles.signInText}>Signing in...</Text>
+                      </View>
+                    ) : (
+                      <Text style={styles.signInText}>Sign in</Text>
+                    )}
+                  </LinearGradient>
+                </TouchableOpacity>
+              </Animated.View>
+
+              {/* Divider */}
+              <View style={styles.divider}>
+                <View style={styles.dividerLine} />
+                <Text style={styles.dividerText}>or</Text>
+                <View style={styles.dividerLine} />
+              </View>
+
+              {/* Social Login */}
+              <View style={styles.socialSection}>
+                <TouchableOpacity 
+                  style={styles.socialButton}
+                  onPress={handleGoogleLogin}
+                  disabled={loading}
+                  activeOpacity={0.7}
+                >
+                  <Icon name="google" size={20} color="#4285F4" />
+                  <Text style={styles.socialButtonText}>Continue with Google</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity 
+                  style={styles.socialButton}
+                  onPress={handleGithubLogin}
+                  disabled={loading}
+                  activeOpacity={0.7}
+                >
+                  <Icon name="github" size={20} color="#1F2937" />
+                  <Text style={styles.socialButtonText}>Continue with GitHub</Text>
                 </TouchableOpacity>
               </View>
-            </View>
 
-            {/* Forgot Password */}
-            <TouchableOpacity 
-              style={styles.forgotPasswordContainer}
-              onPress={handleForgotPassword}
-            >
-              <Text style={[styles.forgotPasswordText, { fontSize: isSmallScreen ? 13 : 14 }]}>
-                Forgot Password?
-              </Text>
-            </TouchableOpacity>
-
-            {/* Login Button */}
-            <TouchableOpacity 
-              style={[
-                styles.loginButton, 
-                loading && styles.loginButtonDisabled,
-                { height: isSmallScreen ? 50 : 56 }
-              ]}
-              onPress={handleLogin}
-              disabled={loading}
-              activeOpacity={0.8}
-            >
-              <LinearGradient
-                colors={['#C81BD4', '#A316B0', '#8C1296']}
-                style={styles.loginButtonGradient}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-              >
-                {loading ? (
-                  <View style={styles.loadingContainer}>
-                    <Icon name="loading" size={isSmallScreen ? 16 : 18} color="#FFF" />
-                    <Text style={[styles.loginButtonText, { fontSize: isSmallScreen ? 16 : 18 }]}>
-                      Signing In...
-                    </Text>
-                  </View>
-                ) : (
-                  <Text style={[styles.loginButtonText, { fontSize: isSmallScreen ? 16 : 18 }]}>
-                    Sign In
+              {/* Sign Up Link */}
+              <View style={styles.signupSection}>
+                <Text style={styles.signupText}>
+                  Don't have an account?{' '}
+                  <Text 
+                    style={styles.signupLink} 
+                    onPress={handleSignup}
+                  >
+                    Sign up
                   </Text>
-                )}
-              </LinearGradient>
-            </TouchableOpacity>
-
-            {/* Signup Link */}
-            <View style={styles.signupContainer}>
-              <Text style={[styles.signupText, { fontSize: isSmallScreen ? 13 : 14 }]}>
-                Don't have an account?
-              </Text>
-              <TouchableOpacity onPress={handleSignup}>
-                <Text style={[styles.signupLink, { fontSize: isSmallScreen ? 13 : 14 }]}>
-                  {' '}Create Account
                 </Text>
-              </TouchableOpacity>
+              </View>
             </View>
-
-            {/* Divider */}
-            <View style={styles.dividerContainer}>
-              <View style={styles.dividerLine} />
-              <Text style={[styles.dividerText, { fontSize: isSmallScreen ? 12 : 13 }]}>OR</Text>
-              <View style={styles.dividerLine} />
-            </View>
-
-            {/* Social Login Buttons */}
-            <View style={styles.socialButtonsContainer}>
-              <TouchableOpacity 
-                style={[
-                  styles.socialButton,
-                  styles.googleButton,
-                  { paddingVertical: isSmallScreen ? 12 : 14 }
-                ]}
-                onPress={handleGoogleLogin}
-                activeOpacity={0.8}
-              >
-                <Icon name="google" size={isSmallScreen ? 18 : 20} color="#DB4437" />
-                <Text style={[
-                  styles.socialButtonText,
-                  { fontSize: isSmallScreen ? 14 : 15 }
-                ]}>
-                  Google
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity 
-                style={[
-                  styles.socialButton,
-                  styles.facebookButton,
-                  { paddingVertical: isSmallScreen ? 12 : 14 }
-                ]}
-                onPress={handleFacebookLogin}
-                activeOpacity={0.8}
-              >
-                <Icon name="facebook" size={isSmallScreen ? 18 : 20} color="#4267B2" />
-                <Text style={[
-                  styles.socialButtonText,
-                  { fontSize: isSmallScreen ? 14 : 15 }
-                ]}>
-                  Facebook
-                </Text>
-              </TouchableOpacity>
-            </View>
-          </View>
+          </Animated.View>
 
           {/* Footer */}
-          <View style={styles.footerContainer}>
-            <Text style={[styles.termsText, { fontSize: isSmallScreen ? 11 : 12 }]}>
-              By signing in, you agree to our 
-              <Text style={styles.termsLink}> Terms</Text> & <Text style={styles.termsLink}>Privacy</Text>
+          <View style={styles.footer}>
+            <Text style={styles.footerText}>
+              Protected by industry-standard encryption
             </Text>
           </View>
-        </KeyboardAvoidingView>
-      </LinearGradient>
+        </ScrollView>
+      </View>
     </SafeAreaView>
   );
 };
 
-// Create ref for password input
-const passwordInputRef = React.createRef();
-
 const styles = StyleSheet.create({
   safeArea: {
     flex: 1,
-    backgroundColor: '#000',
-  },
-  gradientBackground: {
-    flex: 1,
+    backgroundColor: '#FFFFFF',
   },
   container: {
     flex: 1,
-    paddingHorizontal: 24,
-    justifyContent: 'center',
+    backgroundColor: '#FFFFFF',
   },
-  logoContainer: {
+  scrollContent: {
+    flexGrow: 1,
+    paddingHorizontal: 24,
+    paddingTop: Platform.OS === 'android' ? 40 : 20,
+    paddingBottom: 30,
+  },
+  
+  // Brand Section
+  brandSection: {
     alignItems: 'center',
-    marginBottom: isSmallScreen ? 15 : 20,
+    paddingTop: isSmallScreen ? 20 : 40,
+    paddingBottom: isSmallScreen ? 20 : 30,
+  },
+  logoCircle: {
+    width: isSmallScreen ? 70 : 85,
+    height: isSmallScreen ? 70 : 85,
+    borderRadius: isSmallScreen ? 35 : 42.5,
+    backgroundColor: '#F3F4F6',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2,
   },
   logo: {
-    width: isSmallScreen ? 100 : 120,
-    height: isSmallScreen ? 100 : 120,
+    width: isSmallScreen ? 45 : 55,
+    height: isSmallScreen ? 45 : 55,
   },
-  headerContainer: {
-    alignItems: 'center',
-    marginBottom: isSmallScreen ? 20 : 30,
-  },
-  welcomeText: {
+  brandName: {
+    fontSize: isSmallScreen ? 22 : 26,
     fontWeight: '700',
-    color: '#FFF',
-    marginBottom: 5,
+    color: '#111827',
+    marginBottom: 4,
+    letterSpacing: -0.5,
   },
-  subtitleText: {
-    color: '#999',
-    textAlign: 'center',
+  brandTagline: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontWeight: '400',
   },
-  formContainer: {
-    backgroundColor: 'rgba(30, 30, 30, 0.8)',
-    borderRadius: 20,
-    padding: isSmallScreen ? 16 : 24,
-    borderWidth: 1,
-    borderColor: 'rgba(200, 27, 212, 0.1)',
-    marginBottom: isSmallScreen ? 15 : 20,
+
+  // Content Section
+  contentSection: {
+    flex: 1,
+  },
+  welcomeSection: {
+    marginBottom: isSmallScreen ? 24 : 32,
+  },
+  welcomeTitle: {
+    fontSize: isSmallScreen ? 26 : 30,
+    fontWeight: '700',
+    color: '#111827',
+    marginBottom: 6,
+    letterSpacing: -0.5,
+  },
+  welcomeSubtitle: {
+    fontSize: 15,
+    color: '#6B7280',
+    fontWeight: '400',
+  },
+
+  // Form Section
+  formSection: {
+    width: '100%',
+  },
+  inputGroup: {
+    marginBottom: isSmallScreen ? 18 : 20,
+  },
+  labelRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  label: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#374151',
+    marginBottom: 8,
+  },
+  forgotText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#8B5CF6',
   },
   inputWrapper: {
-    marginBottom: isSmallScreen ? 15 : 20,
-  },
-  inputLabel: {
-    fontWeight: '600',
-    color: '#999',
-    marginBottom: 6,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  inputContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#333',
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
     borderRadius: 12,
-    paddingHorizontal: 16,
-    backgroundColor: 'rgba(20, 20, 20, 0.7)',
+    paddingHorizontal: 14,
+    backgroundColor: '#FFFFFF',
+    height: isSmallScreen ? 50 : 54,
   },
-  inputContainerFocused: {
-    borderColor: '#C81BD4',
-    borderWidth: 2,
-    shadowColor: '#C81BD4',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
+  inputWrapperFocused: {
+    borderColor: '#8B5CF6',
+    backgroundColor: '#F9FAFB',
   },
-  input: {
-    color: '#FFF',
+  inputWrapperError: {
+    borderColor: '#EF4444',
+    backgroundColor: '#FEF2F2',
+  },
+  inputIcon: {
+    marginRight: 10,
+  },
+  textInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#111827',
+    fontWeight: '400',
     paddingVertical: 0,
-    paddingRight: 10,
   },
-  forgotPasswordContainer: {
-    alignSelf: 'flex-end',
-    marginBottom: isSmallScreen ? 20 : 25,
-    marginTop: -10,
-  },
-  forgotPasswordText: {
-    color: '#C81BD4',
+  errorText: {
+    fontSize: 12,
+    color: '#EF4444',
+    marginTop: 6,
     fontWeight: '500',
   },
-  loginButton: {
-    borderRadius: 14,
+
+  // Sign In Button
+  signInButton: {
+    borderRadius: 12,
     overflow: 'hidden',
-    marginBottom: isSmallScreen ? 15 : 20,
+    marginTop: isSmallScreen ? 6 : 10,
+    marginBottom: isSmallScreen ? 20 : 24,
+    shadowColor: '#8B5CF6',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 8,
+    elevation: 5,
   },
-  loginButtonGradient: {
-    flex: 1,
+  signInGradient: {
+    paddingVertical: isSmallScreen ? 15 : 16,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  loginButtonDisabled: {
+  signInButtonDisabled: {
     opacity: 0.7,
   },
-  loadingContainer: {
+  loadingContent: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
   },
-  loginButtonText: {
-    color: '#FFF',
-    fontWeight: '600',
-    letterSpacing: 0.5,
+  signInText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
-  signupContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginBottom: isSmallScreen ? 20 : 25,
-  },
-  signupText: {
-    color: '#999',
-  },
-  signupLink: {
-    color: '#C81BD4',
-    fontWeight: '600',
-  },
-  dividerContainer: {
+
+  // Divider
+  divider: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: isSmallScreen ? 20 : 25,
+    marginBottom: isSmallScreen ? 20 : 24,
   },
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: '#E5E7EB',
   },
   dividerText: {
-    marginHorizontal: 12,
-    color: '#666',
-    fontWeight: '600',
-    letterSpacing: 1,
+    marginHorizontal: 16,
+    fontSize: 13,
+    color: '#9CA3AF',
+    fontWeight: '500',
   },
-  socialButtonsContainer: {
-    flexDirection: 'row',
+
+  // Social Login
+  socialSection: {
     gap: 12,
+    marginBottom: isSmallScreen ? 24 : 28,
   },
   socialButton: {
-    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
+    paddingVertical: isSmallScreen ? 13 : 14,
     borderRadius: 12,
-    backgroundColor: 'rgba(20, 20, 20, 0.7)',
-    borderWidth: 1,
-    borderColor: '#333',
-  },
-  googleButton: {
-    borderColor: 'rgba(219, 68, 55, 0.3)',
-  },
-  facebookButton: {
-    borderColor: 'rgba(66, 103, 178, 0.3)',
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1.5,
+    borderColor: '#E5E7EB',
+    gap: 10,
   },
   socialButtonText: {
-    color: '#FFF',
-    fontWeight: '500',
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#374151',
   },
-  footerContainer: {
-    justifyContent: 'center',
+
+  // Sign Up Section
+  signupSection: {
     alignItems: 'center',
-    paddingVertical: isSmallScreen ? 10 : 15,
+    paddingTop: 8,
   },
-  termsText: {
-    color: '#666',
-    textAlign: 'center',
-    lineHeight: isSmallScreen ? 14 : 16,
+  signupText: {
+    fontSize: 14,
+    color: '#6B7280',
+    fontWeight: '400',
   },
-  termsLink: {
-    color: '#C81BD4',
-    fontWeight: '500',
+  signupLink: {
+    color: '#8B5CF6',
+    fontWeight: '700',
+  },
+
+  // Footer
+  footer: {
+    alignItems: 'center',
+    paddingTop: isSmallScreen ? 20 : 30,
+    paddingBottom: 10,
+  },
+  footerText: {
+    fontSize: 12,
+    color: '#9CA3AF',
+    fontWeight: '400',
   },
 });
 
