@@ -21,6 +21,7 @@ import auth from '@react-native-firebase/auth';
 import firestore from '@react-native-firebase/firestore';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
+import { useNavigation } from '@react-navigation/native';
 
 const { width } = Dimensions.get('window');
 const DEFAULT_AVATAR = 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
@@ -29,8 +30,8 @@ const timeAgo = ts => {
   if (!ts) return 'Just now';
   const date = ts.toDate ? ts.toDate() : new Date(ts);
   const diff = Math.floor((Date.now() - date.getTime()) / 1000);
-  if (diff < 60)    return `${diff}s ago`;
-  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 60) return `${diff}s ago`;
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
   if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
   return `${Math.floor(diff / 86400)}d ago`;
 };
@@ -84,14 +85,14 @@ const PostCard = ({ item }) => {
    EDIT PROFILE MODAL
 ───────────────────────────────────────────── */
 const EditModal = ({ visible, onClose, userData, userId }) => {
-  const [name, setName]               = useState(userData?.name || '');
-  const [username, setUsername]       = useState(userData?.username || '');
-  const [bio, setBio]                 = useState(userData?.bio || '');
-  const [techStack, setTechStack]     = useState(userData?.techStack || []);
-  const [hobbies, setHobbies]         = useState(userData?.hobbies || []);
-  const [techInput, setTechInput]     = useState('');
-  const [hobbyInput, setHobbyInput]   = useState('');
-  const [saving, setSaving]           = useState(false);
+  const [name, setName] = useState(userData?.name || '');
+  const [username, setUsername] = useState(userData?.username || '');
+  const [bio, setBio] = useState(userData?.bio || '');
+  const [techStack, setTechStack] = useState(userData?.techStack || []);
+  const [hobbies, setHobbies] = useState(userData?.hobbies || []);
+  const [techInput, setTechInput] = useState('');
+  const [hobbyInput, setHobbyInput] = useState('');
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     if (visible && userData) {
@@ -253,14 +254,14 @@ const EditModal = ({ visible, onClose, userData, userId }) => {
    PROFILE SCREEN
 ───────────────────────────────────────────── */
 const ProfileScreen = () => {
-  const user         = auth().currentUser;
+  const user = auth().currentUser;
   const tabBarHeight = useBottomTabBarHeight();
-
-  const [userData, setUserData]       = useState(null);
-  const [myPosts, setMyPosts]         = useState([]);
+  const navigation = useNavigation();
+  const [userData, setUserData] = useState(null);
+  const [myPosts, setMyPosts] = useState([]);
   const [postsLoading, setPostsLoading] = useState(true);
-  const [refreshing, setRefreshing]   = useState(false);
-  const [activeTab, setActiveTab]     = useState('posts');
+  const [refreshing, setRefreshing] = useState(false);
+  const [activeTab, setActiveTab] = useState('posts');
   const [editVisible, setEditVisible] = useState(false);
 
   const headerAnim = useRef(new Animated.Value(0)).current;
@@ -295,10 +296,10 @@ const ProfileScreen = () => {
   }, [user?.uid]);
 
   const handleLogout = () => auth().signOut();
-  const onRefresh    = () => { setRefreshing(true); setTimeout(() => setRefreshing(false), 1000); };
+  const onRefresh = () => { setRefreshing(true); setTimeout(() => setRefreshing(false), 1000); };
 
   const techStack = userData?.techStack || [];
-  const hobbies   = userData?.hobbies   || [];
+  const hobbies = userData?.hobbies || [];
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -363,7 +364,8 @@ const ProfileScreen = () => {
           <View style={styles.actionRow}>
             <TouchableOpacity
               style={styles.editProfileBtn}
-              onPress={() => setEditVisible(true)}
+              onPress={() => navigation.navigate('EditProfile')}
+
               activeOpacity={0.85}
             >
               <LinearGradient
