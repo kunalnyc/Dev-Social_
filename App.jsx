@@ -3,6 +3,7 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import auth from "@react-native-firebase/auth";
 
+import IntroScreen from "./src/IntroScreen";
 import LoginScreen from "./src/LoginScreen";
 import SignupScreen from "./src/SignupScreen";
 import BottomNavigation from "./src/BottomNavigation";
@@ -31,16 +32,12 @@ const App = () => {
         // ✅ LOGGED IN STACK
         <Stack.Navigator screenOptions={{ headerShown: false }}>
           <Stack.Screen name="MainApp" component={BottomNavigation} />
-
-          {/* 🔥 IMPORTANT: UserProfile MUST be here */}
-          <Stack.Screen
-            name="UserProfile"
-            component={UserProfileScreen}
-          />
+          <Stack.Screen name="UserProfile" component={UserProfileScreen} />
         </Stack.Navigator>
       ) : (
         // ❌ LOGGED OUT STACK
         <Stack.Navigator screenOptions={{ headerShown: false }}>
+          <Stack.Screen name="Intro" component={IntroScreen} />
           <Stack.Screen name="Login" component={LoginScreen} />
           <Stack.Screen name="Signup" component={SignupScreen} />
         </Stack.Navigator>

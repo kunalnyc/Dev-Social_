@@ -7,883 +7,867 @@ import {
   StyleSheet,
   SafeAreaView,
   Dimensions,
-  KeyboardAvoidingView,
   Platform,
-  Image,
   ScrollView,
   Animated,
   StatusBar,
-  Modal,
-  TouchableWithoutFeedback,
 } from 'react-native';
-import auth from "@react-native-firebase/auth";
-import firestore from "@react-native-firebase/firestore";
+import auth from '@react-native-firebase/auth';
+import firestore from '@react-native-firebase/firestore';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import LinearGradient from 'react-native-linear-gradient';
 
 const { width, height } = Dimensions.get('window');
 const isSmallScreen = height < 700;
 
-const SignupScreen = ({ navigation }) => {
-  const [name, setName] = useState('');
-  const [email, setEmail] = useState('');
-  const [dob, setDob] = useState('');
-  const [showDateModal, setShowDateModal] = useState(false);
-  const [tempDob, setTempDob] = useState('');
-  const [password, setPassword] = useState('');
-  const [confirmPassword, setConfirmPassword] = useState('');
-  const [secureTextEntry, setSecureTextEntry] = useState(true);
-  const [secureConfirmEntry, setSecureConfirmEntry] = useState(true);
-  const [loading, setLoading] = useState(false);
-  const [focusedInput, setFocusedInput] = useState(null);
-  
-  // Error states
-  const [nameError, setNameError] = useState('');
-  const [emailError, setEmailError] = useState('');
-  const [dobError, setDobError] = useState('');
-  const [passwordError, setPasswordError] = useState('');
-  const [confirmPasswordError, setConfirmPasswordError] = useState('');
-  
-  // Animation values
-  const fadeAnim = useRef(new Animated.Value(0)).current;
-  const slideUpAnim = useRef(new Animated.Value(40)).current;
-  const logoScale = useRef(new Animated.Value(0.85)).current;
-  const buttonScale = useRef(new Animated.Value(1)).current;
-  
-  const emailInputRef = useRef(null);
-  const passwordInputRef = useRef(null);
-  const confirmPasswordInputRef = useRef(null);
+/* ─────────────────────────────────────────────
+   STEP INDICATOR
+───────────────────────────────────────────── */
+const StepIndicator = ({ currentStep }) => (
+  <View style={styles.stepContainer}>
+    {[1, 2].map((step) => {
+      const isActive = step === currentStep;
+      const isDone   = step < currentStep;
+      return (
+        <View key={step} style={styles.stepWrapper}>
+          <View style={[
+            styles.stepDot,
+            isActive && styles.stepDotActive,
+            isDone   && styles.stepDotDone,
+          ]}>
+            {isDone
+              ? <Icon name="check" size={11} color="#fff" />
+              : <Text style={[styles.stepNum, isActive && styles.stepNumActive]}>{step}</Text>
+            }
+          </View>
+          {step < 2 && (
+            <View style={[styles.stepLine, isDone && styles.stepLineDone]} />
+          )}
+        </View>
+      );
+    })}
+  </View>
+);
 
+/* ─────────────────────────────────────────────
+   MAIN COMPONENT
+───────────────────────────────────────────── */
+const SignupScreen = ({ navigation }) => {
+  const [step, setStep] = useState(1);
+
+  // Step-1 fields
+  const [name, setName]   = useState('');
+  const [email, setEmail] = useState('');
+  const [dob, setDob]     = useState('');
+
+  // Step-2 fields
+  const [password, setPassword]               = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [secureText, setSecureText]           = useState(true);
+  const [secureConfirm, setSecureConfirm]     = useState(true);
+
+  // Errors
+  const [nameError, setNameError]                     = useState('');
+  const [emailError, setEmailError]                   = useState('');
+  const [dobError, setDobError]                       = useState('');
+  const [passwordError, setPasswordError]             = useState('');
+  const [confirmPasswordError, setConfirmPasswordError] = useState('');
+
+  const [loading, setLoading]         = useState(false);
+  const [focusedInput, setFocusedInput] = useState(null);
+
+  // Animations
+  const fadeAnim    = useRef(new Animated.Value(0)).current;
+  const slideAnim   = useRef(new Animated.Value(0)).current;   // panel slide
+  const cardSlide   = useRef(new Animated.Value(30)).current;
+  const buttonScale = useRef(new Animated.Value(1)).current;
+
+  const emailRef           = useRef(null);
+  const passwordRef        = useRef(null);
+  const confirmPasswordRef = useRef(null);
+
+  /* entrance */
   useEffect(() => {
-    // Entrance animations
     Animated.parallel([
-      Animated.timing(fadeAnim, {
-        toValue: 1,
-        duration: 1000,
-        useNativeDriver: true,
-      }),
-      Animated.spring(logoScale, {
-        toValue: 1,
-        tension: 40,
-        friction: 8,
-        useNativeDriver: true,
-      }),
-      Animated.timing(slideUpAnim, {
-        toValue: 0,
-        duration: 800,
-        delay: 100,
-        useNativeDriver: true,
-      }),
+      Animated.timing(fadeAnim,  { toValue: 1, duration: 900, useNativeDriver: true }),
+      Animated.timing(cardSlide, { toValue: 0, duration: 700, delay: 150, useNativeDriver: true }),
     ]).start();
   }, []);
 
-  const validateEmail = (email) => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-  };
+  /* ── helpers ── */
+  const validateEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
 
-  const validateAge = (dateString) => {
-    if (!dateString) return 0;
-    const parts = dateString.split('/');
-    if (parts.length !== 3) return 0;
-    
-    const month = parseInt(parts[0], 10);
-    const day = parseInt(parts[1], 10);
-    const year = parseInt(parts[2], 10);
-    
-    if (isNaN(month) || isNaN(day) || isNaN(year)) return 0;
-    
-    const today = new Date();
-    const birthDate = new Date(year, month - 1, day);
-    const age = today.getFullYear() - birthDate.getFullYear();
-    const monthDiff = today.getMonth() - birthDate.getMonth();
-    
-    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDate.getDate())) {
-      return age - 1;
-    }
-    return age;
-  };
-
-  const validateDate = (dateString) => {
-    const parts = dateString.split('/');
-    if (parts.length !== 3) return false;
-    
-    const month = parseInt(parts[0], 10);
-    const day = parseInt(parts[1], 10);
-    const year = parseInt(parts[2], 10);
-    
-    if (isNaN(month) || isNaN(day) || isNaN(year)) return false;
-    if (month < 1 || month > 12) return false;
-    if (day < 1 || day > 31) return false;
-    if (year < 1900 || year > new Date().getFullYear()) return false;
-    
+  const validateDate = (s) => {
+    const [m, d, y] = s.split('/').map(Number);
+    if (!m || !d || !y) return false;
+    if (m < 1 || m > 12) return false;
+    if (d < 1 || d > 31) return false;
+    if (y < 1900 || y > new Date().getFullYear()) return false;
     return true;
   };
 
-  const formatDate = (text) => {
-    let formatted = text.replace(/\D/g, '');
-    
-    if (formatted.length > 2) {
-      formatted = formatted.substring(0, 2) + '/' + formatted.substring(2);
-    }
-    if (formatted.length > 5) {
-      formatted = formatted.substring(0, 5) + '/' + formatted.substring(5, 9);
-    }
-    
-    return formatted;
+  const calcAge = (s) => {
+    const [m, d, y] = s.split('/').map(Number);
+    const today = new Date();
+    const bd    = new Date(y, m - 1, d);
+    let age     = today.getFullYear() - bd.getFullYear();
+    const md    = today.getMonth() - bd.getMonth();
+    if (md < 0 || (md === 0 && today.getDate() < bd.getDate())) age--;
+    return age;
   };
 
-  const handleDateSelect = () => {
-    if (tempDob) {
-      if (validateDate(tempDob)) {
-        setDob(tempDob);
-        setDobError('');
-      } else {
-        setDobError('Please enter a valid date');
-      }
-    }
-    setShowDateModal(false);
+  const formatDob = (text) => {
+    let t = text.replace(/\D/g, '');
+    if (t.length > 2) t = t.slice(0, 2) + '/' + t.slice(2);
+    if (t.length > 5) t = t.slice(0, 5) + '/' + t.slice(5, 9);
+    return t;
   };
 
-  const openDateModal = () => {
-    setTempDob(dob);
-    setShowDateModal(true);
-  };
-
-  const handleSignup = async () => {
-    // Reset errors
-    setNameError('');
-    setEmailError('');
-    setDobError('');
-    setPasswordError('');
-    setConfirmPasswordError('');
-
-    // Validation
-    let hasError = false;
-
-    if (!name.trim()) {
-      setNameError('Name is required');
-      hasError = true;
-    } else if (name.trim().length < 2) {
-      setNameError('Name must be at least 2 characters');
-      hasError = true;
-    }
-
-    if (!email) {
-      setEmailError('Email is required');
-      hasError = true;
-    } else if (!validateEmail(email)) {
-      setEmailError('Please enter a valid email');
-      hasError = true;
-    }
-
-    if (!dob) {
-      setDobError('Date of birth is required');
-      hasError = true;
-    } else if (!validateDate(dob)) {
-      setDobError('Please enter a valid date');
-      hasError = true;
-    } else {
-      const age = validateAge(dob);
-      if (age < 13) {
-        setDobError('You must be at least 13 years old');
-        hasError = true;
-      }
-    }
-
-    if (!password) {
-      setPasswordError('Password is required');
-      hasError = true;
-    } else if (password.length < 8) {
-      setPasswordError('Password must be at least 8 characters');
-      hasError = true;
-    }
-
-    if (!confirmPassword) {
-      setConfirmPasswordError('Please confirm your password');
-      hasError = true;
-    } else if (password !== confirmPassword) {
-      setConfirmPasswordError('Passwords do not match');
-      hasError = true;
-    }
-
-    if (hasError) return;
-
-    // Button animation
+  const pulseButton = (cb) => {
     Animated.sequence([
-      Animated.timing(buttonScale, {
-        toValue: 0.96,
-        duration: 100,
+      Animated.timing(buttonScale, { toValue: 0.96, duration: 80, useNativeDriver: true }),
+      Animated.timing(buttonScale, { toValue: 1,    duration: 80, useNativeDriver: true }),
+    ]).start(cb);
+  };
+
+  /* ── slide between steps ── */
+  const slideTo = (direction, cb) => {
+    const toValue = direction === 'next' ? -width : width;
+    Animated.timing(slideAnim, {
+      toValue,
+      duration: 320,
+      useNativeDriver: true,
+    }).start(() => {
+      slideAnim.setValue(direction === 'next' ? width : -width);
+      cb();
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 320,
         useNativeDriver: true,
-      }),
-      Animated.timing(buttonScale, {
-        toValue: 1,
-        duration: 100,
-        useNativeDriver: true,
-      }),
-    ]).start();
+      }).start();
+    });
+  };
 
-    setLoading(true);
-    try {
-      // Create Auth User
-      const userCredential = await auth().createUserWithEmailAndPassword(email.trim(), password);
-      const user = userCredential.user;
+  /* ── step 1 → next ── */
+  const handleNext = () => {
+    setNameError(''); setEmailError(''); setDobError('');
+    let err = false;
 
-      // Create Firestore User Document
-      await firestore().collection("users").doc(user.uid).set({
-        uid: user.uid,
-        name: name.trim(),
-        email: email.trim(),
-        dob: dob,
-        username: email.split("@")[0],
-        bio: "",
-        techStack: [],
-        hobbies: [],
-        photoURL: "",
-        followersCount: 0,
-        followingCount: 0,
-        postsCount: 0,
-        createdAt: firestore.FieldValue.serverTimestamp(),
-      });
-
-      // Navigate to main app
-      navigation.replace("MainApp");
-
-    } catch (error) {
-      console.log(error);
-      if (error.code === "auth/email-already-in-use") {
-        setEmailError("This email is already registered");
-      } else if (error.code === "auth/invalid-email") {
-        setEmailError("Invalid email address");
-      } else if (error.code === "auth/weak-password") {
-        setPasswordError("Password is too weak");
-      } else {
-        setEmailError(error.message);
-      }
-    } finally {
-      setLoading(false);
+    if (!name.trim() || name.trim().length < 2) {
+      setNameError(!name.trim() ? 'Name is required' : 'At least 2 characters');
+      err = true;
     }
+    if (!email) {
+      setEmailError('Email is required'); err = true;
+    } else if (!validateEmail(email)) {
+      setEmailError('Please enter a valid email'); err = true;
+    }
+    if (!dob) {
+      setDobError('Date of birth is required'); err = true;
+    } else if (!validateDate(dob)) {
+      setDobError('Please enter a valid date (MM/DD/YYYY)'); err = true;
+    } else if (calcAge(dob) < 13) {
+      setDobError('You must be at least 13 years old'); err = true;
+    }
+
+    if (err) return;
+    pulseButton(() => slideTo('next', () => setStep(2)));
   };
 
-  const handleLogin = () => {
-    navigation.navigate('Login');
+  /* ── step 2 → submit ── */
+  const handleSignup = async () => {
+    setPasswordError(''); setConfirmPasswordError('');
+    let err = false;
+
+    if (!password)             { setPasswordError('Password is required'); err = true; }
+    else if (password.length < 8) { setPasswordError('At least 8 characters'); err = true; }
+
+    if (!confirmPassword)          { setConfirmPasswordError('Please confirm your password'); err = true; }
+    else if (password !== confirmPassword) { setConfirmPasswordError('Passwords do not match'); err = true; }
+
+    if (err) return;
+
+    pulseButton(async () => {
+      setLoading(true);
+      try {
+        const cred = await auth().createUserWithEmailAndPassword(email.trim(), password);
+        const user = cred.user;
+        await firestore().collection('users').doc(user.uid).set({
+          uid: user.uid,
+          name: name.trim(),
+          email: email.trim(),
+          dob,
+          username: email.split('@')[0],
+          bio: '',
+          techStack: [],
+          hobbies: [],
+          photoURL: '',
+          followersCount: 0,
+          followingCount: 0,
+          postsCount: 0,
+          createdAt: firestore.FieldValue.serverTimestamp(),
+        });
+        navigation.replace('MainApp');
+      } catch (e) {
+        if (e.code === 'auth/email-already-in-use') {
+          setStep(1);
+          slideTo('back', () => {});
+          setTimeout(() => setEmailError('This email is already registered'), 350);
+        } else if (e.code === 'auth/weak-password') {
+          setPasswordError('Password is too weak');
+        } else {
+          setPasswordError(e.message);
+        }
+      } finally {
+        setLoading(false);
+      }
+    });
   };
 
-  const handleGoogleSignup = () => {
-    console.log('Google signup');
-    // Implement Google Sign-In
+  const handleBack = () => {
+    if (step === 2) slideTo('back', () => setStep(1));
+    else navigation.goBack();
   };
 
-  const handleGithubSignup = () => {
-    console.log('GitHub signup');
-    // Implement GitHub Sign-In
-  };
-
-  const toggleSecureEntry = () => {
-    setSecureTextEntry(!secureTextEntry);
-  };
-
-  const toggleSecureConfirmEntry = () => {
-    setSecureConfirmEntry(!secureConfirmEntry);
-  };
-
+  /* ─────────────────────────────────────────
+     RENDER
+  ───────────────────────────────────────── */
   return (
-    <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-      <View style={styles.container}>
-        <ScrollView 
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
-        >
-          {/* Back Button */}
-          <TouchableOpacity 
-            style={styles.backButton}
-            onPress={() => navigation.goBack()}
+    <SafeAreaView style={styles.safe}>
+      <StatusBar barStyle="light-content" backgroundColor="#0F0A1E" />
+
+      {/* Ambient gradient background */}
+      <LinearGradient
+        colors={['#0F0A1E', '#1A0F3A', '#0F0A1E']}
+        style={StyleSheet.absoluteFill}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      />
+
+      {/* Decorative blobs */}
+      <View style={styles.blob1} />
+      <View style={styles.blob2} />
+
+      <Animated.View style={[styles.root, { opacity: fadeAnim }]}>
+        {/* ── TOP HEADER ── */}
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={handleBack}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
             disabled={loading}
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Icon name="arrow-left" size={24} color="#8B5CF6" />
+            <Icon name="arrow-left" size={20} color="#C4B5FD" />
           </TouchableOpacity>
 
-          {/* Brand Header */}
-          <Animated.View 
-            style={[
-              styles.brandSection,
-              {
-                opacity: fadeAnim,
-                transform: [{ scale: logoScale }]
-              }
-            ]}
+          {/* Step indicator */}
+          <StepIndicator currentStep={step} />
+
+          <Text style={styles.stepLabel}>
+            {step === 1 ? 'Your profile' : 'Secure your account'}
+          </Text>
+          <Text style={styles.stepSub}>
+            {step === 1 ? 'Step 1 of 2 — Tell us about you' : 'Step 2 of 2 — Create a strong password'}
+          </Text>
+        </View>
+
+        {/* ── CARD (slides) ── */}
+        <Animated.View
+          style={[
+            styles.card,
+            {
+              transform: [
+                { translateY: cardSlide },
+                { translateX: slideAnim },
+              ],
+            },
+          ]}
+        >
+          <ScrollView
+            showsVerticalScrollIndicator={false}
+            keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.cardScroll}
           >
-            <View style={styles.logoCircle}>
-              <Image
-                source={require('./assets/DSLOGOnew.png')}
-                style={styles.logo}
-                resizeMode="contain"
-              />
-            </View>
-            <Text style={styles.brandName}>DreamSpace</Text>
-            <Text style={styles.brandTagline}>Create your account</Text>
-          </Animated.View>
+            {step === 1 ? (
+              /* ══════════ STEP 1 ══════════ */
+              <>
+                <InputField
+                  label="Full name"
+                  icon="account-outline"
+                  placeholder="Your full name"
+                  value={name}
+                  onChangeText={(t) => { setName(t); setNameError(''); }}
+                  error={nameError}
+                  focused={focusedInput === 'name'}
+                  onFocus={() => setFocusedInput('name')}
+                  onBlur={() => setFocusedInput(null)}
+                  autoCapitalize="words"
+                  returnKeyType="next"
+                  onSubmitEditing={() => emailRef.current?.focus()}
+                  editable={!loading}
+                />
 
-          {/* Main Content */}
-          <Animated.View 
-            style={[
-              styles.contentSection,
-              {
-                opacity: fadeAnim,
-                transform: [{ translateY: slideUpAnim }]
-              }
-            ]}
-          >
-            {/* Welcome Text */}
-            <View style={styles.welcomeSection}>
-              <Text style={styles.welcomeTitle}>Get started</Text>
-              <Text style={styles.welcomeSubtitle}>Create your free account</Text>
-            </View>
+                <InputField
+                  label="Email address"
+                  icon="email-outline"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChangeText={(t) => { setEmail(t); setEmailError(''); }}
+                  error={emailError}
+                  focused={focusedInput === 'email'}
+                  onFocus={() => setFocusedInput('email')}
+                  onBlur={() => setFocusedInput(null)}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  returnKeyType="next"
+                  inputRef={emailRef}
+                  editable={!loading}
+                />
 
-            {/* Signup Form */}
-            <View style={styles.formSection}>
-              {/* Name Input */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Full name</Text>
-                <View style={[
-                  styles.inputWrapper,
-                  focusedInput === 'name' && styles.inputWrapperFocused,
-                  nameError && styles.inputWrapperError,
-                ]}>
-                  <Icon 
-                    name="account-outline" 
-                    size={20} 
-                    color={nameError ? '#EF4444' : focusedInput === 'name' ? '#8B5CF6' : '#9CA3AF'} 
-                    style={styles.inputIcon}
-                  />
-                  <TextInput
-                    style={styles.textInput}
-                    placeholder="Enter your full name"
-                    placeholderTextColor="#9CA3AF"
-                    value={name}
-                    onChangeText={(text) => {
-                      setName(text);
-                      setNameError('');
-                    }}
-                    autoCapitalize="words"
-                    onFocus={() => setFocusedInput('name')}
-                    onBlur={() => setFocusedInput(null)}
-                    returnKeyType="next"
-                    onSubmitEditing={() => emailInputRef?.current?.focus()}
-                    editable={!loading}
-                  />
-                </View>
-                {nameError ? (
-                  <Text style={styles.errorText}>{nameError}</Text>
-                ) : null}
-              </View>
+                <InputField
+                  label="Date of birth"
+                  icon="calendar-month-outline"
+                  placeholder="MM/DD/YYYY"
+                  value={dob}
+                  onChangeText={(t) => { setDob(formatDob(t)); setDobError(''); }}
+                  error={dobError}
+                  helper="You must be at least 13 years old"
+                  focused={focusedInput === 'dob'}
+                  onFocus={() => setFocusedInput('dob')}
+                  onBlur={() => setFocusedInput(null)}
+                  keyboardType="numeric"
+                  returnKeyType="done"
+                  maxLength={10}
+                  editable={!loading}
+                />
 
-              {/* Email Input */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Email</Text>
-                <View style={[
-                  styles.inputWrapper,
-                  focusedInput === 'email' && styles.inputWrapperFocused,
-                  emailError && styles.inputWrapperError,
-                ]}>
-                  <Icon 
-                    name="email-outline" 
-                    size={20} 
-                    color={emailError ? '#EF4444' : focusedInput === 'email' ? '#8B5CF6' : '#9CA3AF'} 
-                    style={styles.inputIcon}
-                  />
-                  <TextInput
-                    ref={emailInputRef}
-                    style={styles.textInput}
-                    placeholder="Enter your email"
-                    placeholderTextColor="#9CA3AF"
-                    value={email}
-                    onChangeText={(text) => {
-                      setEmail(text);
-                      setEmailError('');
-                    }}
-                    autoCapitalize="none"
-                    keyboardType="email-address"
-                    onFocus={() => setFocusedInput('email')}
-                    onBlur={() => setFocusedInput(null)}
-                    returnKeyType="next"
-                    onSubmitEditing={openDateModal}
-                    editable={!loading}
-                  />
-                </View>
-                {emailError ? (
-                  <Text style={styles.errorText}>{emailError}</Text>
-                ) : null}
-              </View>
-
-              {/* Date of Birth Input */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Date of birth</Text>
-                <TouchableOpacity 
-                  onPress={openDateModal}
-                  disabled={loading}
-                >
-                  <View style={[
-                    styles.inputWrapper,
-                    dobError && styles.inputWrapperError,
-                  ]}>
-                    <Icon 
-                      name="calendar-outline" 
-                      size={20} 
-                      color={dobError ? '#EF4444' : '#9CA3AF'} 
-                      style={styles.inputIcon}
-                    />
-                    <Text style={[
-                      dob ? styles.dateText : styles.datePlaceholder
-                    ]}>
-                      {dob || 'MM/DD/YYYY'}
-                    </Text>
-                  </View>
-                </TouchableOpacity>
-                {dobError ? (
-                  <Text style={styles.errorText}>{dobError}</Text>
-                ) : (
-                  <Text style={styles.helperText}>You must be at least 13 years old</Text>
-                )}
-              </View>
-
-              {/* Password Input */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Password</Text>
-                <View style={[
-                  styles.inputWrapper,
-                  focusedInput === 'password' && styles.inputWrapperFocused,
-                  passwordError && styles.inputWrapperError,
-                ]}>
-                  <Icon 
-                    name="lock-outline" 
-                    size={20} 
-                    color={passwordError ? '#EF4444' : focusedInput === 'password' ? '#8B5CF6' : '#9CA3AF'} 
-                    style={styles.inputIcon}
-                  />
-                  <TextInput
-                    ref={passwordInputRef}
-                    style={[styles.textInput, { flex: 1 }]}
-                    placeholder="Create a password"
-                    placeholderTextColor="#9CA3AF"
-                    value={password}
-                    onChangeText={(text) => {
-                      setPassword(text);
-                      setPasswordError('');
-                    }}
-                    secureTextEntry={secureTextEntry}
-                    onFocus={() => setFocusedInput('password')}
-                    onBlur={() => setFocusedInput(null)}
-                    returnKeyType="next"
-                    onSubmitEditing={() => confirmPasswordInputRef?.current?.focus()}
-                    editable={!loading}
-                  />
-                  <TouchableOpacity 
-                    onPress={toggleSecureEntry}
+                <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
+                  <TouchableOpacity
+                    style={styles.primaryBtn}
+                    onPress={handleNext}
+                    activeOpacity={0.88}
                     disabled={loading}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
                   >
-                    <Icon 
-                      name={secureTextEntry ? "eye-off-outline" : "eye-outline"} 
-                      size={20} 
-                      color="#9CA3AF" 
-                    />
+                    <LinearGradient
+                      colors={['#7C3AED', '#5B21B6']}
+                      style={styles.primaryGrad}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                    >
+                      <Text style={styles.primaryBtnText}>Continue</Text>
+                      <Icon name="arrow-right" size={18} color="#fff" style={{ marginLeft: 6 }} />
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </Animated.View>
+
+                {/* Divider */}
+                <Divider />
+
+                {/* Social */}
+                <SocialButton icon="google"   color="#4285F4" label="Continue with Google" onPress={() => {}} disabled={loading} />
+                <SocialButton icon="github"   color="#E2E8F0" label="Continue with GitHub" onPress={() => {}} disabled={loading} />
+
+                {/* Login */}
+                <View style={styles.loginRow}>
+                  <Text style={styles.loginText}>Already have an account? </Text>
+                  <TouchableOpacity onPress={() => navigation.navigate('Login')} disabled={loading}>
+                    <Text style={styles.loginLink}>Sign in</Text>
                   </TouchableOpacity>
                 </View>
-                {passwordError ? (
-                  <Text style={styles.errorText}>{passwordError}</Text>
-                ) : (
-                  <Text style={styles.helperText}>Must be at least 8 characters</Text>
-                )}
-              </View>
-
-              {/* Confirm Password Input */}
-              <View style={styles.inputGroup}>
-                <Text style={styles.label}>Confirm password</Text>
-                <View style={[
-                  styles.inputWrapper,
-                  focusedInput === 'confirmPassword' && styles.inputWrapperFocused,
-                  confirmPasswordError && styles.inputWrapperError,
-                ]}>
-                  <Icon 
-                    name="lock-check-outline" 
-                    size={20} 
-                    color={confirmPasswordError ? '#EF4444' : focusedInput === 'confirmPassword' ? '#8B5CF6' : '#9CA3AF'} 
-                    style={styles.inputIcon}
-                  />
-                  <TextInput
-                    ref={confirmPasswordInputRef}
-                    style={[styles.textInput, { flex: 1 }]}
-                    placeholder="Re-enter your password"
-                    placeholderTextColor="#9CA3AF"
-                    value={confirmPassword}
-                    onChangeText={(text) => {
-                      setConfirmPassword(text);
-                      setConfirmPasswordError('');
-                    }}
-                    secureTextEntry={secureConfirmEntry}
-                    onFocus={() => setFocusedInput('confirmPassword')}
-                    onBlur={() => setFocusedInput(null)}
-                    returnKeyType="go"
-                    onSubmitEditing={handleSignup}
-                    editable={!loading}
-                  />
-                  <TouchableOpacity 
-                    onPress={toggleSecureConfirmEntry}
-                    disabled={loading}
-                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                  >
-                    <Icon 
-                      name={secureConfirmEntry ? "eye-off-outline" : "eye-outline"} 
-                      size={20} 
-                      color="#9CA3AF" 
-                    />
-                  </TouchableOpacity>
+              </>
+            ) : (
+              /* ══════════ STEP 2 ══════════ */
+              <>
+                {/* Summary chip */}
+                <View style={styles.summaryChip}>
+                  <Icon name="account-circle-outline" size={16} color="#C4B5FD" />
+                  <Text style={styles.summaryText} numberOfLines={1}>{name}  ·  {email}</Text>
                 </View>
-                {confirmPasswordError ? (
-                  <Text style={styles.errorText}>{confirmPasswordError}</Text>
-                ) : null}
-              </View>
 
-              {/* Sign Up Button */}
-              <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
-                <TouchableOpacity 
-                  style={[styles.signUpButton, loading && styles.signUpButtonDisabled]}
-                  onPress={handleSignup}
-                  disabled={loading}
-                  activeOpacity={0.85}
-                >
-                  <LinearGradient
-                    colors={['#8B5CF6', '#7C3AED']}
-                    style={styles.signUpGradient}
-                    start={{ x: 0, y: 0 }}
-                    end={{ x: 1, y: 0 }}
+                <InputField
+                  label="Password"
+                  icon="lock-outline"
+                  placeholder="Create a strong password"
+                  value={password}
+                  onChangeText={(t) => { setPassword(t); setPasswordError(''); }}
+                  error={passwordError}
+                  helper="Must be at least 8 characters"
+                  focused={focusedInput === 'password'}
+                  onFocus={() => setFocusedInput('password')}
+                  onBlur={() => setFocusedInput(null)}
+                  secureTextEntry={secureText}
+                  toggleSecure={() => setSecureText(!secureText)}
+                  returnKeyType="next"
+                  inputRef={passwordRef}
+                  onSubmitEditing={() => confirmPasswordRef.current?.focus()}
+                  editable={!loading}
+                />
+
+                <InputField
+                  label="Confirm password"
+                  icon="lock-check-outline"
+                  placeholder="Re-enter your password"
+                  value={confirmPassword}
+                  onChangeText={(t) => { setConfirmPassword(t); setConfirmPasswordError(''); }}
+                  error={confirmPasswordError}
+                  focused={focusedInput === 'confirm'}
+                  onFocus={() => setFocusedInput('confirm')}
+                  onBlur={() => setFocusedInput(null)}
+                  secureTextEntry={secureConfirm}
+                  toggleSecure={() => setSecureConfirm(!secureConfirm)}
+                  returnKeyType="go"
+                  inputRef={confirmPasswordRef}
+                  onSubmitEditing={handleSignup}
+                  editable={!loading}
+                />
+
+                {/* Password strength hint */}
+                <PasswordStrength password={password} />
+
+                <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
+                  <TouchableOpacity
+                    style={[styles.primaryBtn, loading && { opacity: 0.7 }]}
+                    onPress={handleSignup}
+                    activeOpacity={0.88}
+                    disabled={loading}
                   >
-                    {loading ? (
-                      <View style={styles.loadingContent}>
-                        <Icon name="loading" size={20} color="#FFFFFF" />
-                        <Text style={styles.signUpText}>Creating account...</Text>
-                      </View>
-                    ) : (
-                      <Text style={styles.signUpText}>Create account</Text>
-                    )}
-                  </LinearGradient>
-                </TouchableOpacity>
-              </Animated.View>
+                    <LinearGradient
+                      colors={['#7C3AED', '#5B21B6']}
+                      style={styles.primaryGrad}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                    >
+                      {loading ? (
+                        <>
+                          <Icon name="loading" size={18} color="#fff" />
+                          <Text style={[styles.primaryBtnText, { marginLeft: 8 }]}>Creating…</Text>
+                        </>
+                      ) : (
+                        <>
+                          <Text style={styles.primaryBtnText}>Create account</Text>
+                          <Icon name="check-circle-outline" size={18} color="#fff" style={{ marginLeft: 6 }} />
+                        </>
+                      )}
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </Animated.View>
 
-              {/* Divider */}
-              <View style={styles.divider}>
-                <View style={styles.dividerLine} />
-                <Text style={styles.dividerText}>or</Text>
-                <View style={styles.dividerLine} />
-              </View>
-
-              {/* Social Signup */}
-              <View style={styles.socialSection}>
-                <TouchableOpacity 
-                  style={styles.socialButton}
-                  onPress={handleGoogleSignup}
-                  disabled={loading}
-                  activeOpacity={0.7}
-                >
-                  <Icon name="google" size={20} color="#4285F4" />
-                  <Text style={styles.socialButtonText}>Continue with Google</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity 
-                  style={styles.socialButton}
-                  onPress={handleGithubSignup}
-                  disabled={loading}
-                  activeOpacity={0.7}
-                >
-                  <Icon name="github" size={20} color="#1F2937" />
-                  <Text style={styles.socialButtonText}>Continue with GitHub</Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Login Link */}
-              <View style={styles.loginSection}>
-                <Text style={styles.loginText}>
-                  Already have an account?{' '}
-                  <Text 
-                    style={styles.loginLink} 
-                    onPress={handleLogin}
-                  >
-                    Sign in
-                  </Text>
+                <Text style={styles.termsText}>
+                  By creating an account you agree to our{' '}
+                  <Text style={styles.termsLink}>Terms</Text> &{' '}
+                  <Text style={styles.termsLink}>Privacy Policy</Text>
                 </Text>
-              </View>
-            </View>
-          </Animated.View>
-
-          {/* Footer */}
-          <View style={styles.footer}>
-            <Text style={styles.footerText}>
-              By creating an account, you agree to our{'\n'}
-              <Text style={styles.footerLink}>Terms of Service</Text>
-              {' '}and{' '}
-              <Text style={styles.footerLink}>Privacy Policy</Text>
-            </Text>
-          </View>
-        </ScrollView>
-      </View>
+              </>
+            )}
+          </ScrollView>
+        </Animated.View>
+      </Animated.View>
     </SafeAreaView>
   );
 };
 
+/* ─────────────────────────────────────────────
+   SUB-COMPONENTS
+───────────────────────────────────────────── */
+const InputField = ({
+  label, icon, placeholder, value, onChangeText,
+  error, helper, focused, onFocus, onBlur,
+  secureTextEntry, toggleSecure, inputRef,
+  editable = true, ...rest
+}) => (
+  <View style={styles.inputGroup}>
+    <Text style={styles.label}>{label}</Text>
+    <View style={[
+      styles.inputBox,
+      focused && styles.inputBoxFocused,
+      error   && styles.inputBoxError,
+    ]}>
+      <Icon
+        name={icon}
+        size={18}
+        color={error ? '#F87171' : focused ? '#A78BFA' : '#6B7280'}
+        style={{ marginRight: 10 }}
+      />
+      <TextInput
+        ref={inputRef}
+        style={styles.textInput}
+        placeholder={placeholder}
+        placeholderTextColor="#4B5563"
+        value={value}
+        onChangeText={onChangeText}
+        onFocus={onFocus}
+        onBlur={onBlur}
+        editable={editable}
+        secureTextEntry={secureTextEntry}
+        {...rest}
+      />
+      {toggleSecure && (
+        <TouchableOpacity onPress={toggleSecure} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+          <Icon name={secureTextEntry ? 'eye-off-outline' : 'eye-outline'} size={18} color="#6B7280" />
+        </TouchableOpacity>
+      )}
+    </View>
+    {error  ? <Text style={styles.errorText}>{error}</Text>  : null}
+    {!error && helper ? <Text style={styles.helperText}>{helper}</Text> : null}
+  </View>
+);
+
+const PasswordStrength = ({ password }) => {
+  const score = !password ? 0
+    : (password.length >= 8 ? 1 : 0)
+    + (/[A-Z]/.test(password) ? 1 : 0)
+    + (/[0-9]/.test(password) ? 1 : 0)
+    + (/[^A-Za-z0-9]/.test(password) ? 1 : 0);
+
+  if (!password) return null;
+  const labels = ['', 'Weak', 'Fair', 'Good', 'Strong'];
+  const colors = ['', '#F87171', '#FBBF24', '#34D399', '#818CF8'];
+
+  return (
+    <View style={styles.strengthRow}>
+      {[1, 2, 3, 4].map((i) => (
+        <View
+          key={i}
+          style={[
+            styles.strengthBar,
+            { backgroundColor: i <= score ? colors[score] : '#2D2040' }
+          ]}
+        />
+      ))}
+      <Text style={[styles.strengthLabel, { color: colors[score] }]}>{labels[score]}</Text>
+    </View>
+  );
+};
+
+const Divider = () => (
+  <View style={styles.divider}>
+    <View style={styles.dividerLine} />
+    <Text style={styles.dividerText}>or</Text>
+    <View style={styles.dividerLine} />
+  </View>
+);
+
+const SocialButton = ({ icon, color, label, onPress, disabled }) => (
+  <TouchableOpacity
+    style={styles.socialBtn}
+    onPress={onPress}
+    disabled={disabled}
+    activeOpacity={0.75}
+  >
+    <Icon name={icon} size={19} color={color} />
+    <Text style={styles.socialBtnText}>{label}</Text>
+  </TouchableOpacity>
+);
+
+/* ─────────────────────────────────────────────
+   STYLES
+───────────────────────────────────────────── */
 const styles = StyleSheet.create({
-  safeArea: {
+  safe: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: '#0F0A1E',
   },
-  container: {
+  root: {
     flex: 1,
-    backgroundColor: '#FFFFFF',
   },
-  scrollContent: {
-    flexGrow: 1,
-    paddingHorizontal: 24,
-    paddingTop: Platform.OS === 'android' ? 20 : 10,
-    paddingBottom: 30,
+
+  /* Decorative blobs */
+  blob1: {
+    position: 'absolute',
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+    backgroundColor: '#5B21B6',
+    opacity: 0.18,
+    top: -80,
+    right: -80,
   },
-  backButton: {
-    alignSelf: 'flex-start',
-    marginBottom: isSmallScreen ? 10 : 20,
-    padding: 8,
-    borderRadius: 12,
-    backgroundColor: '#F3F4F6',
+  blob2: {
+    position: 'absolute',
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: '#7C3AED',
+    opacity: 0.12,
+    bottom: 120,
+    left: -60,
   },
-  
-  // Brand Section
-  brandSection: {
+
+  /* ── Header ── */
+  header: {
     alignItems: 'center',
-    paddingTop: isSmallScreen ? 10 : 20,
-    paddingBottom: isSmallScreen ? 15 : 25,
+    paddingTop: Platform.OS === 'android' ? 16 : 10,
+    paddingBottom: 20,
+    paddingHorizontal: 24,
   },
-  logoCircle: {
-    width: isSmallScreen ? 65 : 75,
-    height: isSmallScreen ? 65 : 75,
-    borderRadius: isSmallScreen ? 32.5 : 37.5,
-    backgroundColor: '#F3F4F6',
+  backBtn: {
+    alignSelf: 'flex-start',
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: 'rgba(124,58,237,0.18)',
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
+    marginBottom: 28,
   },
-  logo: {
-    width: isSmallScreen ? 42 : 48,
-    height: isSmallScreen ? 42 : 48,
-  },
-  brandName: {
-    fontSize: isSmallScreen ? 20 : 24,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 4,
-    letterSpacing: -0.5,
-  },
-  brandTagline: {
-    fontSize: 14,
-    color: '#6B7280',
-    fontWeight: '400',
-  },
-
-  // Content Section
-  contentSection: {
-    flex: 1,
-  },
-  welcomeSection: {
-    marginBottom: isSmallScreen ? 20 : 28,
-  },
-  welcomeTitle: {
-    fontSize: isSmallScreen ? 24 : 28,
-    fontWeight: '700',
-    color: '#111827',
-    marginBottom: 6,
-    letterSpacing: -0.5,
-  },
-  welcomeSubtitle: {
-    fontSize: 15,
-    color: '#6B7280',
-    fontWeight: '400',
-  },
-
-  // Form Section
-  formSection: {
-    width: '100%',
-  },
-  inputGroup: {
-    marginBottom: isSmallScreen ? 16 : 18,
-  },
-  label: {
-    fontSize: 14,
-    fontWeight: '600',
-    color: '#374151',
-    marginBottom: 8,
-  },
-  inputWrapper: {
+  /* ── Step indicator ── */
+  stepContainer: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginBottom: 14,
+  },
+  stepWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  stepDot: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#1E1535',
     borderWidth: 1.5,
-    borderColor: '#E5E7EB',
-    borderRadius: 12,
+    borderColor: '#3D2F6B',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepDotActive: {
+    backgroundColor: '#7C3AED',
+    borderColor: '#A78BFA',
+  },
+  stepDotDone: {
+    backgroundColor: '#5B21B6',
+    borderColor: '#7C3AED',
+  },
+  stepNum: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#6B7280',
+  },
+  stepNumActive: {
+    color: '#EDE9FE',
+  },
+  stepLine: {
+    width: 40,
+    height: 1.5,
+    backgroundColor: '#2D2150',
+    marginHorizontal: 4,
+  },
+  stepLineDone: {
+    backgroundColor: '#7C3AED',
+  },
+  stepLabel: {
+    fontSize: isSmallScreen ? 18 : 22,
+    fontWeight: '800',
+    color: '#EDE9FE',
+    letterSpacing: -0.4,
+    marginBottom: 4,
+  },
+  stepSub: {
+    fontSize: 13,
+    color: '#7C6FA0',
+    fontWeight: '400',
+  },
+
+  /* ── Card ── */
+  card: {
+    flex: 1,
+    backgroundColor: '#16102A',
+    marginHorizontal: 16,
+    marginBottom: 16,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(124,58,237,0.2)',
+    overflow: 'hidden',
+    shadowColor: '#7C3AED',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  cardScroll: {
+    padding: 22,
+    paddingBottom: 30,
+  },
+
+  /* ── Inputs ── */
+  inputGroup: {
+    marginBottom: 16,
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#A78BFA',
+    marginBottom: 7,
+    letterSpacing: 0.2,
+  },
+  inputBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0F0A1E',
+    borderWidth: 1.5,
+    borderColor: '#2D2150',
+    borderRadius: 14,
     paddingHorizontal: 14,
-    backgroundColor: '#FFFFFF',
     height: isSmallScreen ? 50 : 54,
   },
-  inputWrapperFocused: {
-    borderColor: '#8B5CF6',
-    backgroundColor: '#F9FAFB',
+  inputBoxFocused: {
+    borderColor: '#7C3AED',
+    backgroundColor: '#13092D',
   },
-  inputWrapperError: {
-    borderColor: '#EF4444',
-    backgroundColor: '#FEF2F2',
-  },
-  inputIcon: {
-    marginRight: 10,
+  inputBoxError: {
+    borderColor: '#F87171',
+    backgroundColor: '#1F0E1E',
   },
   textInput: {
     flex: 1,
     fontSize: 15,
-    color: '#111827',
+    color: '#EDE9FE',
     fontWeight: '400',
     paddingVertical: 0,
   },
-  dateText: {
-    flex: 1,
-    fontSize: 15,
-    color: '#111827',
-    fontWeight: '400',
-  },
-  datePlaceholder: {
-    flex: 1,
-    fontSize: 15,
-    color: '#9CA3AF',
-    fontWeight: '400',
-  },
   errorText: {
     fontSize: 12,
-    color: '#EF4444',
-    marginTop: 6,
+    color: '#F87171',
+    marginTop: 5,
     fontWeight: '500',
   },
   helperText: {
     fontSize: 12,
-    color: '#6B7280',
-    marginTop: 6,
-    fontWeight: '400',
+    color: '#4B5563',
+    marginTop: 5,
   },
 
-  // Sign Up Button
-  signUpButton: {
-    borderRadius: 12,
-    overflow: 'hidden',
-    marginTop: isSmallScreen ? 6 : 10,
-    marginBottom: isSmallScreen ? 18 : 22,
-    shadowColor: '#8B5CF6',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 8,
-    elevation: 5,
-  },
-  signUpGradient: {
-    paddingVertical: isSmallScreen ? 15 : 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  signUpButtonDisabled: {
-    opacity: 0.7,
-  },
-  loadingContent: {
+  /* ── Password strength ── */
+  strengthRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 5,
+    marginBottom: 18,
+    marginTop: -8,
   },
-  signUpText: {
-    color: '#FFFFFF',
+  strengthBar: {
+    flex: 1,
+    height: 3,
+    borderRadius: 2,
+  },
+  strengthLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    marginLeft: 6,
+    minWidth: 38,
+    textAlign: 'right',
+  },
+
+  /* ── Primary button ── */
+  primaryBtn: {
+    borderRadius: 14,
+    overflow: 'hidden',
+    marginTop: 6,
+    marginBottom: 22,
+    shadowColor: '#7C3AED',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.45,
+    shadowRadius: 14,
+    elevation: 8,
+  },
+  primaryGrad: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: isSmallScreen ? 14 : 16,
+  },
+  primaryBtnText: {
+    color: '#fff',
     fontSize: 16,
     fontWeight: '700',
     letterSpacing: 0.3,
   },
 
-  // Divider
+  /* ── Divider ── */
   divider: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: isSmallScreen ? 18 : 22,
+    marginBottom: 18,
   },
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: '#E5E7EB',
+    backgroundColor: '#2D2150',
   },
   dividerText: {
-    marginHorizontal: 16,
-    fontSize: 13,
-    color: '#9CA3AF',
-    fontWeight: '500',
+    marginHorizontal: 14,
+    fontSize: 12,
+    color: '#4B5563',
+    fontWeight: '600',
   },
 
-  // Social Login
-  socialSection: {
-    gap: 12,
-    marginBottom: isSmallScreen ? 22 : 26,
-  },
-  socialButton: {
+  /* ── Social buttons ── */
+  socialBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: isSmallScreen ? 13 : 14,
-    borderRadius: 12,
-    backgroundColor: '#FFFFFF',
+    paddingVertical: isSmallScreen ? 12 : 14,
+    borderRadius: 14,
+    backgroundColor: '#0F0A1E',
     borderWidth: 1.5,
-    borderColor: '#E5E7EB',
+    borderColor: '#2D2150',
+    marginBottom: 10,
     gap: 10,
   },
-  socialButtonText: {
-    fontSize: 15,
+  socialBtnText: {
+    fontSize: 14,
     fontWeight: '600',
-    color: '#374151',
+    color: '#D1D5DB',
   },
 
-  // Login Section
-  loginSection: {
+  /* ── Login row ── */
+  loginRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
     alignItems: 'center',
-    paddingTop: 8,
+    marginTop: 6,
   },
   loginText: {
-    fontSize: 14,
+    fontSize: 13,
     color: '#6B7280',
-    fontWeight: '400',
   },
   loginLink: {
-    color: '#8B5CF6',
+    fontSize: 13,
+    color: '#A78BFA',
     fontWeight: '700',
   },
 
-  // Footer
-  footer: {
+  /* ── Summary chip ── */
+  summaryChip: {
+    flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: isSmallScreen ? 20 : 25,
-    paddingBottom: 10,
+    backgroundColor: 'rgba(124,58,237,0.12)',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: 'rgba(124,58,237,0.25)',
+    gap: 8,
   },
-  footerText: {
+  summaryText: {
+    fontSize: 13,
+    color: '#C4B5FD',
+    fontWeight: '500',
+    flex: 1,
+  },
+
+  /* ── Terms ── */
+  termsText: {
     fontSize: 12,
-    color: '#9CA3AF',
+    color: '#4B5563',
     textAlign: 'center',
     lineHeight: 18,
-    fontWeight: '400',
+    marginTop: 10,
   },
-  footerLink: {
-    color: '#8B5CF6',
+  termsLink: {
+    color: '#7C3AED',
     fontWeight: '600',
-    textDecorationLine: 'underline',
   },
 });
 
