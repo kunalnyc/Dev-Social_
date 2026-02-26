@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,807 +7,866 @@ import {
   StyleSheet,
   SafeAreaView,
   Dimensions,
-  KeyboardAvoidingView,
   Platform,
-  Image,
   ScrollView,
-  Modal,
-  TouchableWithoutFeedback,
+  Animated,
+  StatusBar,
 } from 'react-native';
-import auth from "@react-native-firebase/auth";
-import firestore from "@react-native-firebase/firestore";
+import auth from '@react-native-firebase/auth';
+import firestore from '@react-native-firebase/firestore';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 import LinearGradient from 'react-native-linear-gradient';
 
 const { width, height } = Dimensions.get('window');
 const isSmallScreen = height < 700;
 
+/* ─────────────────────────────────────────────
+   STEP INDICATOR
+───────────────────────────────────────────── */
+const StepIndicator = ({ currentStep }) => (
+  <View style={styles.stepContainer}>
+    {[1, 2].map((step) => {
+      const isActive = step === currentStep;
+      const isDone   = step < currentStep;
+      return (
+        <View key={step} style={styles.stepWrapper}>
+          <View style={[
+            styles.stepDot,
+            isActive && styles.stepDotActive,
+            isDone   && styles.stepDotDone,
+          ]}>
+            {isDone
+              ? <Icon name="check" size={11} color="#fff" />
+              : <Text style={[styles.stepNum, isActive && styles.stepNumActive]}>{step}</Text>
+            }
+          </View>
+          {step < 2 && (
+            <View style={[styles.stepLine, isDone && styles.stepLineDone]} />
+          )}
+        </View>
+      );
+    })}
+  </View>
+);
+
+/* ─────────────────────────────────────────────
+   MAIN COMPONENT
+───────────────────────────────────────────── */
 const SignupScreen = ({ navigation }) => {
-  const [name, setName] = useState('');
+  const [step, setStep] = useState(1);
+
+  // Step-1 fields
+  const [name, setName]   = useState('');
   const [email, setEmail] = useState('');
-  const [dob, setDob] = useState('');
-  const [password, setPassword] = useState('');
-  const [showDateModal, setShowDateModal] = useState(false);
-  const [tempDob, setTempDob] = useState('');
-  const [secureTextEntry, setSecureTextEntry] = useState(true);
-  const [loading, setLoading] = useState(false);
+  const [dob, setDob]     = useState('');
+
+  // Step-2 fields
+  const [password, setPassword]               = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [secureText, setSecureText]           = useState(true);
+  const [secureConfirm, setSecureConfirm]     = useState(true);
+
+  // Errors
+  const [nameError, setNameError]                     = useState('');
+  const [emailError, setEmailError]                   = useState('');
+  const [dobError, setDobError]                       = useState('');
+  const [passwordError, setPasswordError]             = useState('');
+  const [confirmPasswordError, setConfirmPasswordError] = useState('');
+
+  const [loading, setLoading]         = useState(false);
   const [focusedInput, setFocusedInput] = useState(null);
 
+  // Animations
+  const fadeAnim    = useRef(new Animated.Value(0)).current;
+  const slideAnim   = useRef(new Animated.Value(0)).current;   // panel slide
+  const cardSlide   = useRef(new Animated.Value(30)).current;
+  const buttonScale = useRef(new Animated.Value(1)).current;
+
+  const emailRef           = useRef(null);
+  const passwordRef        = useRef(null);
+  const confirmPasswordRef = useRef(null);
+
+  /* entrance */
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(fadeAnim,  { toValue: 1, duration: 900, useNativeDriver: true }),
+      Animated.timing(cardSlide, { toValue: 0, duration: 700, delay: 150, useNativeDriver: true }),
+    ]).start();
+  }, []);
+
+  /* ── helpers ── */
+  const validateEmail = (v) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v);
+
+  const validateDate = (s) => {
+    const [m, d, y] = s.split('/').map(Number);
+    if (!m || !d || !y) return false;
+    if (m < 1 || m > 12) return false;
+    if (d < 1 || d > 31) return false;
+    if (y < 1900 || y > new Date().getFullYear()) return false;
+    return true;
+  };
+
+  const calcAge = (s) => {
+    const [m, d, y] = s.split('/').map(Number);
+    const today = new Date();
+    const bd    = new Date(y, m - 1, d);
+    let age     = today.getFullYear() - bd.getFullYear();
+    const md    = today.getMonth() - bd.getMonth();
+    if (md < 0 || (md === 0 && today.getDate() < bd.getDate())) age--;
+    return age;
+  };
+
+  const formatDob = (text) => {
+    let t = text.replace(/\D/g, '');
+    if (t.length > 2) t = t.slice(0, 2) + '/' + t.slice(2);
+    if (t.length > 5) t = t.slice(0, 5) + '/' + t.slice(5, 9);
+    return t;
+  };
+
+  const pulseButton = (cb) => {
+    Animated.sequence([
+      Animated.timing(buttonScale, { toValue: 0.96, duration: 80, useNativeDriver: true }),
+      Animated.timing(buttonScale, { toValue: 1,    duration: 80, useNativeDriver: true }),
+    ]).start(cb);
+  };
+
+  /* ── slide between steps ── */
+  const slideTo = (direction, cb) => {
+    const toValue = direction === 'next' ? -width : width;
+    Animated.timing(slideAnim, {
+      toValue,
+      duration: 320,
+      useNativeDriver: true,
+    }).start(() => {
+      slideAnim.setValue(direction === 'next' ? width : -width);
+      cb();
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 320,
+        useNativeDriver: true,
+      }).start();
+    });
+  };
+
+  /* ── step 1 → next ── */
+  const handleNext = () => {
+    setNameError(''); setEmailError(''); setDobError('');
+    let err = false;
+
+    if (!name.trim() || name.trim().length < 2) {
+      setNameError(!name.trim() ? 'Name is required' : 'At least 2 characters');
+      err = true;
+    }
+    if (!email) {
+      setEmailError('Email is required'); err = true;
+    } else if (!validateEmail(email)) {
+      setEmailError('Please enter a valid email'); err = true;
+    }
+    if (!dob) {
+      setDobError('Date of birth is required'); err = true;
+    } else if (!validateDate(dob)) {
+      setDobError('Please enter a valid date (MM/DD/YYYY)'); err = true;
+    } else if (calcAge(dob) < 13) {
+      setDobError('You must be at least 13 years old'); err = true;
+    }
+
+    if (err) return;
+    pulseButton(() => slideTo('next', () => setStep(2)));
+  };
+
+  /* ── step 2 → submit ── */
   const handleSignup = async () => {
-    if (!name || !email || !dob || !password) {
-      alert("Please fill all fields");
-      return;
-    }
+    setPasswordError(''); setConfirmPasswordError('');
+    let err = false;
 
-    // Password validation
-    if (password.length < 8) {
-      alert("Password must be at least 8 characters long");
-      return;
-    }
+    if (!password)             { setPasswordError('Password is required'); err = true; }
+    else if (password.length < 8) { setPasswordError('At least 8 characters'); err = true; }
 
-    setLoading(true);
-    try {
-      // Create Auth User
-      const userCredential = await auth().createUserWithEmailAndPassword(email.trim(), password);
-      const user = userCredential.user;
+    if (!confirmPassword)          { setConfirmPasswordError('Please confirm your password'); err = true; }
+    else if (password !== confirmPassword) { setConfirmPasswordError('Passwords do not match'); err = true; }
 
-      // Create Firestore User Document
-      await firestore().collection("users").doc(user.uid).set({
-        uid: user.uid,
-        name: name,
-        email: email.trim(),
-        dob: dob,
-        username: email.split("@")[0],
-        bio: "",
-        techStack: [],
-        hobbies: [],
-        photoURL: "",
-        followersCount: 0,
-        followingCount: 0,
-        postsCount: 0,
-        createdAt: firestore.FieldValue.serverTimestamp(),
-      });
+    if (err) return;
 
-      // Navigate to main app
-      navigation.replace("MainApp");
-
-    } catch (error) {
-      console.log(error);
-      if (error.code === "auth/email-already-in-use") {
-        alert("Email already in use");
-      } else if (error.code === "auth/invalid-email") {
-        alert("Invalid email address");
-      } else if (error.code === "auth/weak-password") {
-        alert("Password is too weak");
-      } else {
-        alert(error.message);
+    pulseButton(async () => {
+      setLoading(true);
+      try {
+        const cred = await auth().createUserWithEmailAndPassword(email.trim(), password);
+        const user = cred.user;
+        await firestore().collection('users').doc(user.uid).set({
+          uid: user.uid,
+          name: name.trim(),
+          email: email.trim(),
+          dob,
+          username: email.split('@')[0],
+          bio: '',
+          techStack: [],
+          hobbies: [],
+          photoURL: '',
+          followersCount: 0,
+          followingCount: 0,
+          postsCount: 0,
+          createdAt: firestore.FieldValue.serverTimestamp(),
+        });
+        navigation.replace('MainApp');
+      } catch (e) {
+        if (e.code === 'auth/email-already-in-use') {
+          setStep(1);
+          slideTo('back', () => {});
+          setTimeout(() => setEmailError('This email is already registered'), 350);
+        } else if (e.code === 'auth/weak-password') {
+          setPasswordError('Password is too weak');
+        } else {
+          setPasswordError(e.message);
+        }
+      } finally {
+        setLoading(false);
       }
-    } finally {
-      setLoading(false);
-    }
+    });
   };
 
-  const handleLogin = () => {
-    navigation.navigate('Login');
+  const handleBack = () => {
+    if (step === 2) slideTo('back', () => setStep(1));
+    else navigation.goBack();
   };
 
-  const handleDateSelect = () => {
-    if (tempDob) {
-      const dateRegex = /^\d{2}\/\d{2}\/\d{4}$/;
-      if (dateRegex.test(tempDob)) {
-        setDob(tempDob);
-      } else {
-        setDob(tempDob);
-      }
-    }
-    setShowDateModal(false);
-  };
-
-  const openDateModal = () => {
-    setTempDob(dob);
-    setShowDateModal(true);
-  };
-
-  const formatDate = (text) => {
-    let formatted = text.replace(/\D/g, '');
-    
-    if (formatted.length > 2) {
-      formatted = formatted.substring(0, 2) + '/' + formatted.substring(2);
-    }
-    if (formatted.length > 5) {
-      formatted = formatted.substring(0, 5) + '/' + formatted.substring(5, 9);
-    }
-    
-    return formatted;
-  };
-
-  const toggleSecureEntry = () => {
-    setSecureTextEntry(!secureTextEntry);
-  };
-
-  const clearField = (field) => {
-    switch(field) {
-      case 'name': setName(''); break;
-      case 'email': setEmail(''); break;
-      case 'dob': setDob(''); break;
-      case 'password': setPassword(''); break;
-    }
-  };
-
+  /* ─────────────────────────────────────────
+     RENDER
+  ───────────────────────────────────────── */
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={styles.safe}>
+      <StatusBar barStyle="light-content" backgroundColor="#0F0A1E" />
+
+      {/* Ambient gradient background */}
       <LinearGradient
-        colors={['#0A0A0A', '#1A1A1A', '#2A1B3D']}
-        style={styles.gradientBackground}
-      >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-          style={styles.container}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 40 : 0}
+        colors={['#0F0A1E', '#1A0F3A', '#0F0A1E']}
+        style={StyleSheet.absoluteFill}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+      />
+
+      {/* Decorative blobs */}
+      <View style={styles.blob1} />
+      <View style={styles.blob2} />
+
+      <Animated.View style={[styles.root, { opacity: fadeAnim }]}>
+        {/* ── TOP HEADER ── */}
+        <View style={styles.header}>
+          <TouchableOpacity
+            style={styles.backBtn}
+            onPress={handleBack}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            disabled={loading}
+          >
+            <Icon name="arrow-left" size={20} color="#C4B5FD" />
+          </TouchableOpacity>
+
+          {/* Step indicator */}
+          <StepIndicator currentStep={step} />
+
+          <Text style={styles.stepLabel}>
+            {step === 1 ? 'Your profile' : 'Secure your account'}
+          </Text>
+          <Text style={styles.stepSub}>
+            {step === 1 ? 'Step 1 of 2 — Tell us about you' : 'Step 2 of 2 — Create a strong password'}
+          </Text>
+        </View>
+
+        {/* ── CARD (slides) ── */}
+        <Animated.View
+          style={[
+            styles.card,
+            {
+              transform: [
+                { translateY: cardSlide },
+                { translateX: slideAnim },
+              ],
+            },
+          ]}
         >
-          <ScrollView 
-            contentContainerStyle={styles.scrollContent}
+          <ScrollView
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
+            contentContainerStyle={styles.cardScroll}
           >
-            {/* Back Button */}
-            <TouchableOpacity 
-              style={styles.backButton} 
-              onPress={() => navigation.goBack()}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <Icon name="arrow-left" size={isSmallScreen ? 20 : 24} color="#C81BD4" />
-            </TouchableOpacity>
+            {step === 1 ? (
+              /* ══════════ STEP 1 ══════════ */
+              <>
+                <InputField
+                  label="Full name"
+                  icon="account-outline"
+                  placeholder="Your full name"
+                  value={name}
+                  onChangeText={(t) => { setName(t); setNameError(''); }}
+                  error={nameError}
+                  focused={focusedInput === 'name'}
+                  onFocus={() => setFocusedInput('name')}
+                  onBlur={() => setFocusedInput(null)}
+                  autoCapitalize="words"
+                  returnKeyType="next"
+                  onSubmitEditing={() => emailRef.current?.focus()}
+                  editable={!loading}
+                />
 
-            {/* Logo */}
-            <View style={styles.logoContainer}>
-              <Image
-                source={require('./assets/DSLOGOnew.png')}
-                style={styles.logo}
-                resizeMode="contain"
-              />
-            </View>
+                <InputField
+                  label="Email address"
+                  icon="email-outline"
+                  placeholder="you@example.com"
+                  value={email}
+                  onChangeText={(t) => { setEmail(t); setEmailError(''); }}
+                  error={emailError}
+                  focused={focusedInput === 'email'}
+                  onFocus={() => setFocusedInput('email')}
+                  onBlur={() => setFocusedInput(null)}
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  returnKeyType="next"
+                  inputRef={emailRef}
+                  editable={!loading}
+                />
 
-            {/* Welcome Section */}
-            <View style={styles.headerContainer}>
-              <Text style={[styles.welcomeText, { fontSize: isSmallScreen ? 26 : 32 }]}>
-                Create Account
-              </Text>
-              <Text style={[styles.subtitleText, { fontSize: isSmallScreen ? 14 : 16 }]}>
-                Join us and start your journey
-              </Text>
-            </View>
+                <InputField
+                  label="Date of birth"
+                  icon="calendar-month-outline"
+                  placeholder="MM/DD/YYYY"
+                  value={dob}
+                  onChangeText={(t) => { setDob(formatDob(t)); setDobError(''); }}
+                  error={dobError}
+                  helper="You must be at least 13 years old"
+                  focused={focusedInput === 'dob'}
+                  onFocus={() => setFocusedInput('dob')}
+                  onBlur={() => setFocusedInput(null)}
+                  keyboardType="numeric"
+                  returnKeyType="done"
+                  maxLength={10}
+                  editable={!loading}
+                />
 
-            {/* Signup Form */}
-            <View style={styles.formContainer}>
-              {/* Name Input */}
-              <View style={styles.inputWrapper}>
-                <Text style={[
-                  styles.inputLabel,
-                  { fontSize: isSmallScreen ? 11 : 12 }
-                ]}>
-                  <Icon name="account-outline" size={isSmallScreen ? 12 : 14} color="#C81BD4" /> FULL NAME
-                </Text>
-                <View style={[
-                  styles.inputContainer,
-                  focusedInput === 'name' && styles.inputContainerFocused,
-                  { height: isSmallScreen ? 48 : 56 }
-                ]}>
-                  <TextInput
-                    style={[
-                      styles.input,
-                      { fontSize: isSmallScreen ? 14 : 16 }
-                    ]}
-                    placeholder="John Doe"
-                    placeholderTextColor="#666"
-                    value={name}
-                    onChangeText={setName}
-                    autoCapitalize="words"
-                    onFocus={() => setFocusedInput('name')}
-                    onBlur={() => setFocusedInput(null)}
-                    returnKeyType="next"
-                  />
-                  {name.length > 0 && (
-                    <TouchableOpacity 
-                      onPress={() => clearField('name')}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    >
-                      <Icon name="close-circle" size={isSmallScreen ? 16 : 18} color="#666" />
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </View>
-
-              {/* Email Input */}
-              <View style={styles.inputWrapper}>
-                <Text style={[
-                  styles.inputLabel,
-                  { fontSize: isSmallScreen ? 11 : 12 }
-                ]}>
-                  <Icon name="email-outline" size={isSmallScreen ? 12 : 14} color="#C81BD4" /> EMAIL
-                </Text>
-                <View style={[
-                  styles.inputContainer,
-                  focusedInput === 'email' && styles.inputContainerFocused,
-                  { height: isSmallScreen ? 48 : 56 }
-                ]}>
-                  <TextInput
-                    style={[
-                      styles.input,
-                      { fontSize: isSmallScreen ? 14 : 16 }
-                    ]}
-                    placeholder="you@example.com"
-                    placeholderTextColor="#666"
-                    value={email}
-                    onChangeText={setEmail}
-                    autoCapitalize="none"
-                    keyboardType="email-address"
-                    onFocus={() => setFocusedInput('email')}
-                    onBlur={() => setFocusedInput(null)}
-                    returnKeyType="next"
-                  />
-                  {email.length > 0 && (
-                    <TouchableOpacity 
-                      onPress={() => clearField('email')}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    >
-                      <Icon name="close-circle" size={isSmallScreen ? 16 : 18} color="#666" />
-                    </TouchableOpacity>
-                  )}
-                </View>
-              </View>
-
-              {/* Date of Birth Input */}
-              <View style={styles.inputWrapper}>
-                <Text style={[
-                  styles.inputLabel,
-                  { fontSize: isSmallScreen ? 11 : 12 }
-                ]}>
-                  <Icon name="calendar-outline" size={isSmallScreen ? 12 : 14} color="#C81BD4" /> DATE OF BIRTH
-                </Text>
-                <TouchableOpacity onPress={openDateModal}>
-                  <View style={[
-                    styles.inputContainer,
-                    focusedInput === 'dob' && styles.inputContainerFocused,
-                    { height: isSmallScreen ? 48 : 56, justifyContent: 'center' }
-                  ]}>
-                    <Text style={[
-                      dob ? styles.input : styles.inputPlaceholder,
-                      { fontSize: isSmallScreen ? 14 : 16 }
-                    ]}>
-                      {dob || 'MM/DD/YYYY'}
-                    </Text>
-                    {dob.length > 0 && (
-                      <TouchableOpacity 
-                        onPress={() => clearField('dob')}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                      >
-                        <Icon name="close-circle" size={isSmallScreen ? 16 : 18} color="#666" />
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                </TouchableOpacity>
-              </View>
-
-              {/* Password Input */}
-              <View style={styles.inputWrapper}>
-                <Text style={[
-                  styles.inputLabel,
-                  { fontSize: isSmallScreen ? 11 : 12 }
-                ]}>
-                  <Icon name="lock-outline" size={isSmallScreen ? 12 : 14} color="#C81BD4" /> PASSWORD
-                </Text>
-                <View style={[
-                  styles.inputContainer,
-                  focusedInput === 'password' && styles.inputContainerFocused,
-                  { height: isSmallScreen ? 48 : 56 }
-                ]}>
-                  <TextInput
-                    style={[
-                      styles.input,
-                      { fontSize: isSmallScreen ? 14 : 16, flex: 1 }
-                    ]}
-                    placeholder="••••••••"
-                    placeholderTextColor="#666"
-                    value={password}
-                    onChangeText={setPassword}
-                    secureTextEntry={secureTextEntry}
-                    onFocus={() => setFocusedInput('password')}
-                    onBlur={() => setFocusedInput(null)}
-                    returnKeyType="done"
-                  />
-                  <View style={styles.passwordIcons}>
-                    {password.length > 0 && (
-                      <TouchableOpacity 
-                        onPress={() => clearField('password')}
-                        hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                        style={styles.clearIcon}
-                      >
-                        <Icon name="close-circle" size={isSmallScreen ? 16 : 18} color="#666" />
-                      </TouchableOpacity>
-                    )}
-                    <TouchableOpacity 
-                      onPress={toggleSecureEntry}
-                      hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-                    >
-                      <Icon 
-                        name={secureTextEntry ? "eye-off-outline" : "eye-outline"} 
-                        size={isSmallScreen ? 18 : 20} 
-                        color="#666" 
-                      />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-              </View>
-
-              {/* Password Hint */}
-              <View style={styles.passwordHintContainer}>
-                <Text style={[styles.passwordHintText, { fontSize: isSmallScreen ? 11 : 12 }]}>
-                  <Icon name="information-outline" size={isSmallScreen ? 12 : 14} color="#C81BD4" />
-                  {' '}Use 8+ characters with a mix of letters, numbers & symbols
-                </Text>
-              </View>
-
-              {/* Signup Button */}
-              <TouchableOpacity 
-                style={[
-                  styles.signupButton, 
-                  loading && styles.signupButtonDisabled,
-                  { height: isSmallScreen ? 50 : 56, marginTop: isSmallScreen ? 10 : 15 }
-                ]}
-                onPress={handleSignup}
-                disabled={loading}
-                activeOpacity={0.8}
-              >
-                <LinearGradient
-                  colors={['#C81BD4', '#A316B0', '#8C1296']}
-                  style={styles.signupButtonGradient}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                >
-                  {loading ? (
-                    <View style={styles.loadingContainer}>
-                      <Icon name="loading" size={isSmallScreen ? 16 : 18} color="#FFF" />
-                      <Text style={[styles.signupButtonText, { fontSize: isSmallScreen ? 16 : 18 }]}>
-                        Creating Account...
-                      </Text>
-                    </View>
-                  ) : (
-                    <Text style={[styles.signupButtonText, { fontSize: isSmallScreen ? 16 : 18 }]}>
-                      Create Account
-                    </Text>
-                  )}
-                </LinearGradient>
-              </TouchableOpacity>
-
-              {/* Login Link */}
-              <View style={styles.loginContainer}>
-                <Text style={[styles.loginText, { fontSize: isSmallScreen ? 13 : 14 }]}>
-                  Already have an account?
-                </Text>
-                <TouchableOpacity onPress={handleLogin}>
-                  <Text style={[styles.loginLink, { fontSize: isSmallScreen ? 13 : 14 }]}>
-                    {' '}Sign In
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Divider */}
-              <View style={styles.dividerContainer}>
-                <View style={styles.dividerLine} />
-                <Text style={[styles.dividerText, { fontSize: isSmallScreen ? 12 : 13 }]}>OR</Text>
-                <View style={styles.dividerLine} />
-              </View>
-
-              {/* Social Signup Buttons */}
-              <View style={styles.socialButtonsContainer}>
-                <TouchableOpacity 
-                  style={[
-                    styles.socialButton,
-                    styles.googleButton,
-                    { paddingVertical: isSmallScreen ? 12 : 14 }
-                  ]}
-                  onPress={() => console.log('Google signup')}
-                  activeOpacity={0.8}
-                >
-                  <Icon name="google" size={isSmallScreen ? 18 : 20} color="#DB4437" />
-                  <Text style={[
-                    styles.socialButtonText,
-                    { fontSize: isSmallScreen ? 14 : 15 }
-                  ]}>
-                    Google
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity 
-                  style={[
-                    styles.socialButton,
-                    styles.facebookButton,
-                    { paddingVertical: isSmallScreen ? 12 : 14 }
-                ]}
-                  onPress={() => console.log('Facebook signup')}
-                  activeOpacity={0.8}
-                >
-                  <Icon name="facebook" size={isSmallScreen ? 18 : 20} color="#4267B2" />
-                  <Text style={[
-                    styles.socialButtonText,
-                    { fontSize: isSmallScreen ? 14 : 15 }
-                  ]}>
-                    Facebook
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            </View>
-
-            {/* Footer */}
-            <View style={styles.footerContainer}>
-              <Text style={[styles.termsText, { fontSize: isSmallScreen ? 11 : 12 }]}>
-                By creating an account, you agree to our 
-                <Text style={styles.termsLink}> Terms</Text> & <Text style={styles.termsLink}>Privacy</Text>
-              </Text>
-            </View>
-          </ScrollView>
-        </KeyboardAvoidingView>
-      </LinearGradient>
-
-      {/* Date Picker Modal */}
-      <Modal
-        visible={showDateModal}
-        transparent={true}
-        animationType="fade"
-      >
-        <TouchableWithoutFeedback onPress={() => setShowDateModal(false)}>
-          <View style={styles.modalOverlay}>
-            <TouchableWithoutFeedback>
-              <View style={[
-                styles.modalContent,
-                { width: width * 0.85, padding: isSmallScreen ? 20 : 24 }
-              ]}>
-                <Text style={[
-                  styles.modalTitle,
-                  { fontSize: isSmallScreen ? 18 : 20 }
-                ]}>
-                  Enter Date of Birth
-                </Text>
-                <Text style={[
-                  styles.modalSubtitle,
-                  { fontSize: isSmallScreen ? 12 : 14, marginBottom: isSmallScreen ? 15 : 20 }
-                ]}>
-                  Format: MM/DD/YYYY
-                </Text>
-                
-                <View style={[
-                  styles.modalInputContainer,
-                  { marginBottom: isSmallScreen ? 20 : 24 }
-                ]}>
-                  <TextInput
-                    style={[
-                      styles.modalInput,
-                      { fontSize: isSmallScreen ? 16 : 18, height: isSmallScreen ? 50 : 56 }
-                    ]}
-                    placeholder="MM/DD/YYYY"
-                    placeholderTextColor="#666"
-                    value={tempDob}
-                    onChangeText={(text) => setTempDob(formatDate(text))}
-                    keyboardType="number-pad"
-                    maxLength={10}
-                    autoFocus
-                    textAlign="center"
-                  />
-                </View>
-                
-                <View style={styles.modalButtons}>
-                  <TouchableOpacity 
-                    style={[
-                      styles.cancelButton,
-                      { paddingVertical: isSmallScreen ? 12 : 14 }
-                    ]}
-                    onPress={() => setShowDateModal(false)}
-                  >
-                    <Text style={[
-                      styles.cancelButtonText,
-                      { fontSize: isSmallScreen ? 14 : 16 }
-                    ]}>
-                      Cancel
-                    </Text>
-                  </TouchableOpacity>
-                  
-                  <TouchableOpacity 
-                    style={[
-                      styles.confirmButton,
-                      { paddingVertical: isSmallScreen ? 12 : 14 }
-                    ]}
-                    onPress={handleDateSelect}
+                <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
+                  <TouchableOpacity
+                    style={styles.primaryBtn}
+                    onPress={handleNext}
+                    activeOpacity={0.88}
+                    disabled={loading}
                   >
                     <LinearGradient
-                      colors={['#C81BD4', '#A316B0']}
-                      style={styles.confirmButtonGradient}
+                      colors={['#7C3AED', '#5B21B6']}
+                      style={styles.primaryGrad}
                       start={{ x: 0, y: 0 }}
                       end={{ x: 1, y: 0 }}
                     >
-                      <Text style={[
-                        styles.confirmButtonText,
-                        { fontSize: isSmallScreen ? 14 : 16 }
-                      ]}>
-                        Confirm
-                      </Text>
+                      <Text style={styles.primaryBtnText}>Continue</Text>
+                      <Icon name="arrow-right" size={18} color="#fff" style={{ marginLeft: 6 }} />
                     </LinearGradient>
                   </TouchableOpacity>
+                </Animated.View>
+
+                {/* Divider */}
+                <Divider />
+
+                {/* Social */}
+                <SocialButton icon="google"   color="#4285F4" label="Continue with Google" onPress={() => {}} disabled={loading} />
+                <SocialButton icon="github"   color="#E2E8F0" label="Continue with GitHub" onPress={() => {}} disabled={loading} />
+
+                {/* Login */}
+                <View style={styles.loginRow}>
+                  <Text style={styles.loginText}>Already have an account? </Text>
+                  <TouchableOpacity onPress={() => navigation.navigate('Login')} disabled={loading}>
+                    <Text style={styles.loginLink}>Sign in</Text>
+                  </TouchableOpacity>
                 </View>
-              </View>
-            </TouchableWithoutFeedback>
-          </View>
-        </TouchableWithoutFeedback>
-      </Modal>
+              </>
+            ) : (
+              /* ══════════ STEP 2 ══════════ */
+              <>
+                {/* Summary chip */}
+                <View style={styles.summaryChip}>
+                  <Icon name="account-circle-outline" size={16} color="#C4B5FD" />
+                  <Text style={styles.summaryText} numberOfLines={1}>{name}  ·  {email}</Text>
+                </View>
+
+                <InputField
+                  label="Password"
+                  icon="lock-outline"
+                  placeholder="Create a strong password"
+                  value={password}
+                  onChangeText={(t) => { setPassword(t); setPasswordError(''); }}
+                  error={passwordError}
+                  helper="Must be at least 8 characters"
+                  focused={focusedInput === 'password'}
+                  onFocus={() => setFocusedInput('password')}
+                  onBlur={() => setFocusedInput(null)}
+                  secureTextEntry={secureText}
+                  toggleSecure={() => setSecureText(!secureText)}
+                  returnKeyType="next"
+                  inputRef={passwordRef}
+                  onSubmitEditing={() => confirmPasswordRef.current?.focus()}
+                  editable={!loading}
+                />
+
+                <InputField
+                  label="Confirm password"
+                  icon="lock-check-outline"
+                  placeholder="Re-enter your password"
+                  value={confirmPassword}
+                  onChangeText={(t) => { setConfirmPassword(t); setConfirmPasswordError(''); }}
+                  error={confirmPasswordError}
+                  focused={focusedInput === 'confirm'}
+                  onFocus={() => setFocusedInput('confirm')}
+                  onBlur={() => setFocusedInput(null)}
+                  secureTextEntry={secureConfirm}
+                  toggleSecure={() => setSecureConfirm(!secureConfirm)}
+                  returnKeyType="go"
+                  inputRef={confirmPasswordRef}
+                  onSubmitEditing={handleSignup}
+                  editable={!loading}
+                />
+
+                {/* Password strength hint */}
+                <PasswordStrength password={password} />
+
+                <Animated.View style={{ transform: [{ scale: buttonScale }] }}>
+                  <TouchableOpacity
+                    style={[styles.primaryBtn, loading && { opacity: 0.7 }]}
+                    onPress={handleSignup}
+                    activeOpacity={0.88}
+                    disabled={loading}
+                  >
+                    <LinearGradient
+                      colors={['#7C3AED', '#5B21B6']}
+                      style={styles.primaryGrad}
+                      start={{ x: 0, y: 0 }}
+                      end={{ x: 1, y: 0 }}
+                    >
+                      {loading ? (
+                        <>
+                          <Icon name="loading" size={18} color="#fff" />
+                          <Text style={[styles.primaryBtnText, { marginLeft: 8 }]}>Creating…</Text>
+                        </>
+                      ) : (
+                        <>
+                          <Text style={styles.primaryBtnText}>Create account</Text>
+                          <Icon name="check-circle-outline" size={18} color="#fff" style={{ marginLeft: 6 }} />
+                        </>
+                      )}
+                    </LinearGradient>
+                  </TouchableOpacity>
+                </Animated.View>
+
+                <Text style={styles.termsText}>
+                  By creating an account you agree to our{' '}
+                  <Text style={styles.termsLink}>Terms</Text> &{' '}
+                  <Text style={styles.termsLink}>Privacy Policy</Text>
+                </Text>
+              </>
+            )}
+          </ScrollView>
+        </Animated.View>
+      </Animated.View>
     </SafeAreaView>
   );
 };
 
+/* ─────────────────────────────────────────────
+   SUB-COMPONENTS
+───────────────────────────────────────────── */
+const InputField = ({
+  label, icon, placeholder, value, onChangeText,
+  error, helper, focused, onFocus, onBlur,
+  secureTextEntry, toggleSecure, inputRef,
+  editable = true, ...rest
+}) => (
+  <View style={styles.inputGroup}>
+    <Text style={styles.label}>{label}</Text>
+    <View style={[
+      styles.inputBox,
+      focused && styles.inputBoxFocused,
+      error   && styles.inputBoxError,
+    ]}>
+      <Icon
+        name={icon}
+        size={18}
+        color={error ? '#F87171' : focused ? '#A78BFA' : '#6B7280'}
+        style={{ marginRight: 10 }}
+      />
+      <TextInput
+        ref={inputRef}
+        style={styles.textInput}
+        placeholder={placeholder}
+        placeholderTextColor="#4B5563"
+        value={value}
+        onChangeText={onChangeText}
+        onFocus={onFocus}
+        onBlur={onBlur}
+        editable={editable}
+        secureTextEntry={secureTextEntry}
+        {...rest}
+      />
+      {toggleSecure && (
+        <TouchableOpacity onPress={toggleSecure} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+          <Icon name={secureTextEntry ? 'eye-off-outline' : 'eye-outline'} size={18} color="#6B7280" />
+        </TouchableOpacity>
+      )}
+    </View>
+    {error  ? <Text style={styles.errorText}>{error}</Text>  : null}
+    {!error && helper ? <Text style={styles.helperText}>{helper}</Text> : null}
+  </View>
+);
+
+const PasswordStrength = ({ password }) => {
+  const score = !password ? 0
+    : (password.length >= 8 ? 1 : 0)
+    + (/[A-Z]/.test(password) ? 1 : 0)
+    + (/[0-9]/.test(password) ? 1 : 0)
+    + (/[^A-Za-z0-9]/.test(password) ? 1 : 0);
+
+  if (!password) return null;
+  const labels = ['', 'Weak', 'Fair', 'Good', 'Strong'];
+  const colors = ['', '#F87171', '#FBBF24', '#34D399', '#818CF8'];
+
+  return (
+    <View style={styles.strengthRow}>
+      {[1, 2, 3, 4].map((i) => (
+        <View
+          key={i}
+          style={[
+            styles.strengthBar,
+            { backgroundColor: i <= score ? colors[score] : '#2D2040' }
+          ]}
+        />
+      ))}
+      <Text style={[styles.strengthLabel, { color: colors[score] }]}>{labels[score]}</Text>
+    </View>
+  );
+};
+
+const Divider = () => (
+  <View style={styles.divider}>
+    <View style={styles.dividerLine} />
+    <Text style={styles.dividerText}>or</Text>
+    <View style={styles.dividerLine} />
+  </View>
+);
+
+const SocialButton = ({ icon, color, label, onPress, disabled }) => (
+  <TouchableOpacity
+    style={styles.socialBtn}
+    onPress={onPress}
+    disabled={disabled}
+    activeOpacity={0.75}
+  >
+    <Icon name={icon} size={19} color={color} />
+    <Text style={styles.socialBtnText}>{label}</Text>
+  </TouchableOpacity>
+);
+
+/* ─────────────────────────────────────────────
+   STYLES
+───────────────────────────────────────────── */
 const styles = StyleSheet.create({
-  safeArea: {
+  safe: {
     flex: 1,
-    backgroundColor: '#000',
+    backgroundColor: '#0F0A1E',
   },
-  gradientBackground: {
-    flex: 1,
-  },
-  container: {
+  root: {
     flex: 1,
   },
-  scrollContent: {
-    paddingHorizontal: 24,
-    paddingTop: 20,
-    paddingBottom: 40,
-    justifyContent: 'center',
-    minHeight: height,
-  },
-  backButton: {
+
+  /* Decorative blobs */
+  blob1: {
     position: 'absolute',
-    top: 10,
-    left: 20,
-    zIndex: 10,
-    backgroundColor: 'rgba(200, 27, 212, 0.1)',
-    borderRadius: 20,
-    padding: 8,
+    width: 280,
+    height: 280,
+    borderRadius: 140,
+    backgroundColor: '#5B21B6',
+    opacity: 0.18,
+    top: -80,
+    right: -80,
   },
-  logoContainer: {
+  blob2: {
+    position: 'absolute',
+    width: 200,
+    height: 200,
+    borderRadius: 100,
+    backgroundColor: '#7C3AED',
+    opacity: 0.12,
+    bottom: 120,
+    left: -60,
+  },
+
+  /* ── Header ── */
+  header: {
     alignItems: 'center',
-    marginTop: isSmallScreen ? 30 : 40,
-    marginBottom: isSmallScreen ? 15 : 20,
+    paddingTop: Platform.OS === 'android' ? 16 : 10,
+    paddingBottom: 20,
+    paddingHorizontal: 24,
   },
-  logo: {
-    width: isSmallScreen ? 100 : 120,
-    height: isSmallScreen ? 100 : 120,
-  },
-  headerContainer: {
+  backBtn: {
+    alignSelf: 'flex-start',
+    width: 38,
+    height: 38,
+    borderRadius: 12,
+    backgroundColor: 'rgba(124,58,237,0.18)',
     alignItems: 'center',
-    marginBottom: isSmallScreen ? 20 : 30,
+    justifyContent: 'center',
+    marginBottom: 28,
   },
-  welcomeText: {
-    fontWeight: '700',
-    color: '#FFF',
-    marginBottom: 5,
-  },
-  subtitleText: {
-    color: '#999',
-    textAlign: 'center',
-  },
-  formContainer: {
-    backgroundColor: 'rgba(30, 30, 30, 0.8)',
-    borderRadius: 20,
-    padding: isSmallScreen ? 16 : 24,
-    borderWidth: 1,
-    borderColor: 'rgba(200, 27, 212, 0.1)',
-    marginBottom: isSmallScreen ? 15 : 20,
-  },
-  inputWrapper: {
-    marginBottom: isSmallScreen ? 15 : 20,
-  },
-  inputLabel: {
-    fontWeight: '600',
-    color: '#999',
-    marginBottom: 6,
-    letterSpacing: 1,
-    textTransform: 'uppercase',
-  },
-  inputContainer: {
+  /* ── Step indicator ── */
+  stepContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#333',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    backgroundColor: 'rgba(20, 20, 20, 0.7)',
+    marginBottom: 14,
   },
-  inputContainerFocused: {
-    borderColor: '#C81BD4',
-    borderWidth: 2,
-    shadowColor: '#C81BD4',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.3,
-    shadowRadius: 10,
+  stepWrapper: {
+    flexDirection: 'row',
+    alignItems: 'center',
   },
-  input: {
-    color: '#FFF',
+  stepDot: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#1E1535',
+    borderWidth: 1.5,
+    borderColor: '#3D2F6B',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepDotActive: {
+    backgroundColor: '#7C3AED',
+    borderColor: '#A78BFA',
+  },
+  stepDotDone: {
+    backgroundColor: '#5B21B6',
+    borderColor: '#7C3AED',
+  },
+  stepNum: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#6B7280',
+  },
+  stepNumActive: {
+    color: '#EDE9FE',
+  },
+  stepLine: {
+    width: 40,
+    height: 1.5,
+    backgroundColor: '#2D2150',
+    marginHorizontal: 4,
+  },
+  stepLineDone: {
+    backgroundColor: '#7C3AED',
+  },
+  stepLabel: {
+    fontSize: isSmallScreen ? 18 : 22,
+    fontWeight: '800',
+    color: '#EDE9FE',
+    letterSpacing: -0.4,
+    marginBottom: 4,
+  },
+  stepSub: {
+    fontSize: 13,
+    color: '#7C6FA0',
+    fontWeight: '400',
+  },
+
+  /* ── Card ── */
+  card: {
     flex: 1,
+    backgroundColor: '#16102A',
+    marginHorizontal: 16,
+    marginBottom: 16,
+    borderRadius: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(124,58,237,0.2)',
+    overflow: 'hidden',
+    shadowColor: '#7C3AED',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 24,
+    elevation: 12,
+  },
+  cardScroll: {
+    padding: 22,
+    paddingBottom: 30,
+  },
+
+  /* ── Inputs ── */
+  inputGroup: {
+    marginBottom: 16,
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#A78BFA',
+    marginBottom: 7,
+    letterSpacing: 0.2,
+  },
+  inputBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0F0A1E',
+    borderWidth: 1.5,
+    borderColor: '#2D2150',
+    borderRadius: 14,
+    paddingHorizontal: 14,
+    height: isSmallScreen ? 50 : 54,
+  },
+  inputBoxFocused: {
+    borderColor: '#7C3AED',
+    backgroundColor: '#13092D',
+  },
+  inputBoxError: {
+    borderColor: '#F87171',
+    backgroundColor: '#1F0E1E',
+  },
+  textInput: {
+    flex: 1,
+    fontSize: 15,
+    color: '#EDE9FE',
+    fontWeight: '400',
     paddingVertical: 0,
   },
-  inputPlaceholder: {
-    color: '#666',
-    flex: 1,
+  errorText: {
+    fontSize: 12,
+    color: '#F87171',
+    marginTop: 5,
+    fontWeight: '500',
   },
-  passwordIcons: {
+  helperText: {
+    fontSize: 12,
+    color: '#4B5563',
+    marginTop: 5,
+  },
+
+  /* ── Password strength ── */
+  strengthRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 5,
+    marginBottom: 18,
+    marginTop: -8,
   },
-  clearIcon: {
-    marginRight: 4,
+  strengthBar: {
+    flex: 1,
+    height: 3,
+    borderRadius: 2,
   },
-  passwordHintContainer: {
-    marginBottom: isSmallScreen ? 15 : 20,
-    paddingHorizontal: 4,
+  strengthLabel: {
+    fontSize: 11,
+    fontWeight: '700',
+    marginLeft: 6,
+    minWidth: 38,
+    textAlign: 'right',
   },
-  passwordHintText: {
-    color: '#999',
-    lineHeight: 16,
-  },
-  signupButton: {
+
+  /* ── Primary button ── */
+  primaryBtn: {
     borderRadius: 14,
     overflow: 'hidden',
-    marginBottom: isSmallScreen ? 15 : 20,
+    marginTop: 6,
+    marginBottom: 22,
+    shadowColor: '#7C3AED',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.45,
+    shadowRadius: 14,
+    elevation: 8,
   },
-  signupButtonGradient: {
-    flex: 1,
+  primaryGrad: {
+    flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
+    paddingVertical: isSmallScreen ? 14 : 16,
   },
-  signupButtonDisabled: {
-    opacity: 0.7,
+  primaryBtnText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
-  loadingContainer: {
+
+  /* ── Divider ── */
+  divider: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
-  },
-  signupButtonText: {
-    color: '#FFF',
-    fontWeight: '600',
-    letterSpacing: 0.5,
-  },
-  loginContainer: {
-    flexDirection: 'row',
-    justifyContent: 'center',
-    marginBottom: isSmallScreen ? 20 : 25,
-  },
-  loginText: {
-    color: '#999',
-  },
-  loginLink: {
-    color: '#C81BD4',
-    fontWeight: '600',
-  },
-  dividerContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginBottom: isSmallScreen ? 20 : 25,
+    marginBottom: 18,
   },
   dividerLine: {
     flex: 1,
     height: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
+    backgroundColor: '#2D2150',
   },
   dividerText: {
-    marginHorizontal: 12,
-    color: '#666',
+    marginHorizontal: 14,
+    fontSize: 12,
+    color: '#4B5563',
     fontWeight: '600',
-    letterSpacing: 1,
   },
-  socialButtonsContainer: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  socialButton: {
-    flex: 1,
+
+  /* ── Social buttons ── */
+  socialBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    borderRadius: 12,
-    backgroundColor: 'rgba(20, 20, 20, 0.7)',
+    paddingVertical: isSmallScreen ? 12 : 14,
+    borderRadius: 14,
+    backgroundColor: '#0F0A1E',
+    borderWidth: 1.5,
+    borderColor: '#2D2150',
+    marginBottom: 10,
+    gap: 10,
+  },
+  socialBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#D1D5DB',
+  },
+
+  /* ── Login row ── */
+  loginRow: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 6,
+  },
+  loginText: {
+    fontSize: 13,
+    color: '#6B7280',
+  },
+  loginLink: {
+    fontSize: 13,
+    color: '#A78BFA',
+    fontWeight: '700',
+  },
+
+  /* ── Summary chip ── */
+  summaryChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(124,58,237,0.12)',
+    borderRadius: 10,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 20,
     borderWidth: 1,
-    borderColor: '#333',
+    borderColor: 'rgba(124,58,237,0.25)',
+    gap: 8,
   },
-  googleButton: {
-    borderColor: 'rgba(219, 68, 55, 0.3)',
-  },
-  facebookButton: {
-    borderColor: 'rgba(66, 103, 178, 0.3)',
-  },
-  socialButtonText: {
-    color: '#FFF',
+  summaryText: {
+    fontSize: 13,
+    color: '#C4B5FD',
     fontWeight: '500',
+    flex: 1,
   },
-  footerContainer: {
-    justifyContent: 'center',
-    alignItems: 'center',
-    paddingVertical: isSmallScreen ? 10 : 15,
-  },
+
+  /* ── Terms ── */
   termsText: {
-    color: '#666',
+    fontSize: 12,
+    color: '#4B5563',
     textAlign: 'center',
-    lineHeight: isSmallScreen ? 14 : 16,
+    lineHeight: 18,
+    marginTop: 10,
   },
   termsLink: {
-    color: '#C81BD4',
-    fontWeight: '500',
-  },
-  // Modal Styles
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  modalContent: {
-    backgroundColor: '#1E1E1E',
-    borderRadius: 20,
-    borderWidth: 1,
-    borderColor: 'rgba(200, 27, 212, 0.2)',
-    alignItems: 'center',
-  },
-  modalTitle: {
-    fontWeight: '700',
-    color: '#FFF',
-    marginBottom: 4,
-  },
-  modalSubtitle: {
-    color: '#999',
-    textAlign: 'center',
-  },
-  modalInputContainer: {
-    width: '100%',
-  },
-  modalInput: {
-    color: '#FFF',
-    backgroundColor: 'rgba(20, 20, 20, 0.7)',
-    borderWidth: 1,
-    borderColor: '#333',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    textAlign: 'center',
-  },
-  modalButtons: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    width: '100%',
-    gap: 12,
-  },
-  cancelButton: {
-    flex: 1,
-    backgroundColor: 'rgba(20, 20, 20, 0.7)',
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: '#333',
-    alignItems: 'center',
-  },
-  cancelButtonText: {
-    color: '#FFF',
-    fontWeight: '600',
-  },
-  confirmButton: {
-    flex: 1,
-    borderRadius: 12,
-    overflow: 'hidden',
-  },
-  confirmButtonGradient: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    width: '100%',
-  },
-  confirmButtonText: {
-    color: '#FFF',
+    color: '#7C3AED',
     fontWeight: '600',
   },
 });
