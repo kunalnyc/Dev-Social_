@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View,
   Text,
@@ -10,6 +10,8 @@ import {
   StatusBar,
   Animated,
   Platform,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import LinearGradient from 'react-native-linear-gradient';
@@ -19,6 +21,8 @@ import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import Icon from 'react-native-vector-icons/MaterialCommunityIcons';
 
 const DEFAULT_AVATAR = 'https://cdn-icons-png.flaticon.com/512/149/149071.png';
+// Using a reliable Unsplash image as fallback
+const FALLBACK_AVATAR = 'https://images.unsplash.com/photo-1633332755192-727a05c4013d?w=400&h=400&fit=crop';
 
 /* ─────────────────────────────────────────────
    NOTIFICATION TYPE CONFIG
@@ -27,87 +31,129 @@ const NOTIF_CONFIG = {
   like: {
     icon: 'heart',
     color: '#F472B6',
-    bg:   'rgba(244,114,182,0.12)',
+    bg: 'rgba(244,114,182,0.12)',
     border: 'rgba(244,114,182,0.25)',
     label: 'liked your post',
   },
   comment: {
     icon: 'comment',
     color: '#A78BFA',
-    bg:   'rgba(167,139,250,0.12)',
+    bg: 'rgba(167,139,250,0.12)',
     border: 'rgba(167,139,250,0.25)',
     label: 'commented on your post',
   },
   follow: {
     icon: 'account-plus',
     color: '#34D399',
-    bg:   'rgba(52,211,153,0.12)',
+    bg: 'rgba(52,211,153,0.12)',
     border: 'rgba(52,211,153,0.25)',
     label: 'started following you',
   },
   mention: {
     icon: 'at',
     color: '#60A5FA',
-    bg:   'rgba(96,165,250,0.12)',
+    bg: 'rgba(96,165,250,0.12)',
     border: 'rgba(96,165,250,0.25)',
     label: 'mentioned you in a post',
   },
   reply: {
     icon: 'reply',
     color: '#FBBF24',
-    bg:   'rgba(251,191,36,0.12)',
+    bg: 'rgba(251,191,36,0.12)',
     border: 'rgba(251,191,36,0.25)',
     label: 'replied to your comment',
   },
 };
 
 /* ─────────────────────────────────────────────
-   TIME HELPER
+   TIME HELPER (with error handling)
 ───────────────────────────────────────────── */
-const timeAgo = ts => {
-  if (!ts) return '';
-  const now  = Date.now();
-  const date = ts.toDate ? ts.toDate() : new Date(ts);
-  const diff = Math.floor((now - date.getTime()) / 1000);
-  if (diff < 60)    return `${diff}s ago`;
-  if (diff < 3600)  return `${Math.floor(diff / 60)}m ago`;
-  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
-  if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
-  return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+const timeAgo = (timestamp) => {
+  if (!timestamp) return '';
+  
+  try {
+    let date;
+    if (timestamp?.toDate) {
+      date = timestamp.toDate();
+    } else if (timestamp instanceof Date) {
+      date = timestamp;
+    } else if (typeof timestamp === 'string') {
+      date = new Date(timestamp);
+    } else {
+      return '';
+    }
+
+    if (isNaN(date.getTime())) return '';
+
+    const now = Date.now();
+    const diff = Math.floor((now - date.getTime()) / 1000);
+    
+    if (diff < 60) return `${diff}s ago`;
+    if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+    if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+    if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+    
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  } catch (error) {
+    console.error('Error formatting date:', error);
+    return '';
+  }
 };
 
 /* ─────────────────────────────────────────────
    FILTER TABS
 ───────────────────────────────────────────── */
 const FILTERS = [
-  { key: 'all',     label: 'All',      icon: 'bell-outline' },
-  { key: 'like',    label: 'Likes',    icon: 'heart-outline' },
+  { key: 'all', label: 'All', icon: 'bell-outline' },
+  { key: 'like', label: 'Likes', icon: 'heart-outline' },
   { key: 'comment', label: 'Comments', icon: 'comment-outline' },
-  { key: 'follow',  label: 'Follows',  icon: 'account-plus-outline' },
+  { key: 'follow', label: 'Follows', icon: 'account-plus-outline' },
 ];
 
 /* ─────────────────────────────────────────────
-   NOTIFICATION ITEM
+   NOTIFICATION ITEM (with safe rendering)
 ───────────────────────────────────────────── */
-const NotifItem = ({ item, onPress, onMarkRead, index }) => {
-  const config   = NOTIF_CONFIG[item.type] || NOTIF_CONFIG.like;
-  const isUnread = !item.read;
+const NotifItem = ({ item, onPress, index }) => {
+  // Safe config access
+  const config = NOTIF_CONFIG[item?.type] || NOTIF_CONFIG.like;
+  const isUnread = !item?.read;
 
-  const fadeAnim  = useRef(new Animated.Value(0)).current;
+  const fadeAnim = useRef(new Animated.Value(0)).current;
   const slideAnim = useRef(new Animated.Value(20)).current;
 
   useEffect(() => {
     Animated.parallel([
-      Animated.timing(fadeAnim,  { toValue: 1, duration: 350, delay: index * 60, useNativeDriver: true }),
-      Animated.timing(slideAnim, { toValue: 0, duration: 350, delay: index * 60, useNativeDriver: true }),
+      Animated.timing(fadeAnim, {
+        toValue: 1,
+        duration: 350,
+        delay: index * 60,
+        useNativeDriver: true,
+      }),
+      Animated.timing(slideAnim, {
+        toValue: 0,
+        duration: 350,
+        delay: index * 60,
+        useNativeDriver: true,
+      }),
     ]).start();
-  }, []);
+  }, [fadeAnim, slideAnim, index]);
+
+  // Safe data access with defaults
+  const fromName = item?.fromName || 'Someone';
+  const fromAvatar = item?.fromAvatar || DEFAULT_AVATAR;
+  const preview = item?.preview || '';
+  const postImage = item?.postImage;
+  const type = item?.type || 'like';
+
+  // Handle image error
+  const [avatarError, setAvatarError] = useState(false);
+  const [postImageError, setPostImageError] = useState(false);
 
   return (
     <Animated.View style={{ opacity: fadeAnim, transform: [{ translateY: slideAnim }] }}>
       <TouchableOpacity
         style={[styles.notifCard, isUnread && styles.notifCardUnread]}
-        onPress={() => onPress(item)}
+        onPress={() => onPress?.(item)}
         activeOpacity={0.78}
       >
         {/* Unread indicator */}
@@ -117,8 +163,9 @@ const NotifItem = ({ item, onPress, onMarkRead, index }) => {
         <View style={styles.avatarSection}>
           <View style={styles.avatarWrapper}>
             <Image
-              source={{ uri: item.fromAvatar || DEFAULT_AVATAR }}
+              source={{ uri: avatarError ? FALLBACK_AVATAR : fromAvatar }}
               style={styles.avatar}
+              onError={() => setAvatarError(true)}
             />
             {/* Type icon badge */}
             <View style={[styles.typeBadge, { backgroundColor: config.bg, borderColor: config.border }]}>
@@ -130,26 +177,37 @@ const NotifItem = ({ item, onPress, onMarkRead, index }) => {
         {/* Content */}
         <View style={styles.notifContent}>
           <View style={styles.notifTextRow}>
-            <Text style={styles.notifName}>{item.fromName || 'Someone'}</Text>
+            <Text style={styles.notifName}>{fromName}</Text>
             <Text style={styles.notifAction}> {config.label}</Text>
           </View>
 
-          {/* Preview text (comment/mention content) */}
-          {item.preview ? (
+          {/* Preview text (comment/mention content) - only if exists */}
+          {preview ? (
             <Text style={styles.notifPreview} numberOfLines={1}>
-              "{item.preview}"
+              "{preview}"
             </Text>
           ) : null}
 
-          <Text style={styles.notifTime}>{timeAgo(item.createdAt)}</Text>
+          <Text style={styles.notifTime}>{timeAgo(item?.createdAt)}</Text>
         </View>
 
         {/* Post thumbnail (for like/comment) */}
-        {item.postImage ? (
-          <Image source={{ uri: item.postImage }} style={styles.postThumb} />
-        ) : item.type === 'follow' ? (
+        {postImage && !postImageError ? (
+          <Image 
+            source={{ uri: postImage }} 
+            style={styles.postThumb}
+            onError={() => setPostImageError(true)}
+          />
+        ) : type === 'follow' ? (
           // Follow button
-          <TouchableOpacity style={styles.followBackBtn} activeOpacity={0.8}>
+          <TouchableOpacity 
+            style={styles.followBackBtn} 
+            activeOpacity={0.8}
+            onPress={() => {
+              // Handle follow back action
+              console.log('Follow back pressed');
+            }}
+          >
             <Text style={styles.followBackText}>Follow</Text>
           </TouchableOpacity>
         ) : null}
@@ -161,126 +219,302 @@ const NotifItem = ({ item, onPress, onMarkRead, index }) => {
 /* ─────────────────────────────────────────────
    EMPTY STATE
 ───────────────────────────────────────────── */
-const EmptyState = ({ filter }) => (
-  <View style={styles.emptyWrap}>
-    <View style={styles.emptyIconRing}>
-      <Icon
-        name={filter === 'all' ? 'bell-sleep-outline' : NOTIF_CONFIG[filter]?.icon + '-outline' || 'bell-outline'}
-        size={40}
-        color="#3D2F6B"
-      />
+const EmptyState = ({ filter }) => {
+  const getIconName = () => {
+    if (filter === 'all') return 'bell-sleep-outline';
+    return `${NOTIF_CONFIG[filter]?.icon || 'bell'}-outline`;
+  };
+
+  return (
+    <View style={styles.emptyWrap}>
+      <View style={styles.emptyIconRing}>
+        <Icon name={getIconName()} size={40} color="#3D2F6B" />
+      </View>
+      <Text style={styles.emptyTitle}>Nothing here yet</Text>
+      <Text style={styles.emptySub}>
+        {filter === 'all'
+          ? 'Your activity will show up here'
+          : `No ${filter} notifications yet`}
+      </Text>
     </View>
-    <Text style={styles.emptyTitle}>Nothing here yet</Text>
-    <Text style={styles.emptySub}>
-      {filter === 'all'
-        ? 'Your activity will show up here'
-        : `No ${filter} notifications yet`}
-    </Text>
-  </View>
-);
+  );
+};
 
 /* ─────────────────────────────────────────────
    ACTIVITY SCREEN
 ───────────────────────────────────────────── */
 const ActivityScreen = ({ navigation }) => {
   const tabBarHeight = useBottomTabBarHeight();
-  const userId = auth().currentUser?.uid;
+  const [userId, setUserId] = useState(null);
 
   const [notifications, setNotifications] = useState([]);
-  const [loading, setLoading]             = useState(true);
-  const [refreshing, setRefreshing]       = useState(false);
-  const [activeFilter, setActiveFilter]   = useState('all');
-  const [unreadCount, setUnreadCount]     = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [activeFilter, setActiveFilter] = useState('all');
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [error, setError] = useState(null);
 
   const headerAnim = useRef(new Animated.Value(0)).current;
   const filterAnim = useRef(new Animated.Value(0)).current;
 
+  // Get current user
   useEffect(() => {
-    Animated.parallel([
-      Animated.timing(headerAnim, { toValue: 1, duration: 600, useNativeDriver: true }),
-      Animated.timing(filterAnim, { toValue: 1, duration: 600, delay: 150, useNativeDriver: true }),
-    ]).start();
+    const currentUser = auth().currentUser;
+    if (currentUser?.uid) {
+      setUserId(currentUser.uid);
+    } else {
+      setError('No user logged in');
+      setLoading(false);
+    }
   }, []);
 
-  /* ── Firestore listener ── */
+  // Animations
+  useEffect(() => {
+    Animated.parallel([
+      Animated.timing(headerAnim, { 
+        toValue: 1, 
+        duration: 600, 
+        useNativeDriver: true 
+      }),
+      Animated.timing(filterAnim, { 
+        toValue: 1, 
+        duration: 600, 
+        delay: 150, 
+        useNativeDriver: true 
+      }),
+    ]).start();
+  }, [headerAnim, filterAnim]);
+
+  /* ── Firestore listener with error handling ── */
   useEffect(() => {
     if (!userId) return;
 
-    const unsubscribe = firestore()
-      .collection('notifications')
-      .where('toUserId', '==', userId)
-      .orderBy('createdAt', 'desc')
-      .limit(50)
-      .onSnapshot(snapshot => {
-        const list = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-        setNotifications(list);
-        setUnreadCount(list.filter(n => !n.read).length);
-        setLoading(false);
-      });
+    let unsubscribe = () => {};
 
-    return unsubscribe;
+    const setupListener = async () => {
+      try {
+        // Set up the listener
+        unsubscribe = firestore()
+          .collection('notifications')
+          .where('toUserId', '==', userId)
+          .orderBy('createdAt', 'desc')
+          .limit(50)
+          .onSnapshot(
+            snapshot => {
+              try {
+                const list = snapshot.docs.map(doc => ({
+                  id: doc.id,
+                  ...doc.data(),
+                }));
+                setNotifications(list);
+                setUnreadCount(list.filter(n => !n.read).length);
+                setLoading(false);
+                setError(null);
+              } catch (err) {
+                console.error('Error processing snapshot:', err);
+                setError('Error loading notifications');
+                setLoading(false);
+              }
+            },
+            err => {
+              console.error('Firestore listener error:', err);
+              if (err.code === 'permission-denied') {
+                setError('Permission denied. Please check your permissions.');
+              } else if (err.code === 'not-found') {
+                setError('Notifications collection not found');
+              } else {
+                setError('Failed to load notifications');
+              }
+              setLoading(false);
+            }
+          );
+      } catch (err) {
+        console.error('Error setting up listener:', err);
+        setError('Failed to connect to database');
+        setLoading(false);
+      }
+    };
+
+    setupListener();
+
+    return () => {
+      if (unsubscribe) {
+        unsubscribe();
+      }
+    };
   }, [userId]);
 
-  /* ── Mark all read ── */
-  const markAllRead = async () => {
+  /* ── Mark all read with error handling ── */
+  const markAllRead = useCallback(async () => {
     if (!userId || unreadCount === 0) return;
-    const batch = firestore().batch();
-    notifications
-      .filter(n => !n.read)
-      .forEach(n => {
-        batch.update(firestore().collection('notifications').doc(n.id), { read: true });
+
+    try {
+      const batch = firestore().batch();
+      const unreadNotifs = notifications.filter(n => !n.read);
+      
+      unreadNotifs.forEach(n => {
+        const notifRef = firestore().collection('notifications').doc(n.id);
+        batch.update(notifRef, { read: true });
       });
-    await batch.commit();
-  };
-
-  /* ── Mark single read on tap ── */
-  const handleNotifPress = async item => {
-    if (!item.read) {
-      await firestore().collection('notifications').doc(item.id).update({ read: true });
+      
+      await batch.commit();
+    } catch (error) {
+      console.error('Error marking all as read:', error);
+      Alert.alert('Error', 'Failed to mark notifications as read');
     }
-    // Navigate based on type
-    if ((item.type === 'like' || item.type === 'comment') && item.postId) {
-      // navigation.navigate('PostDetail', { postId: item.postId });
-    } else if (item.type === 'follow' && item.fromUserId) {
-      navigation.navigate('UserProfile', { userId: item.fromUserId });
-    }
-  };
+  }, [userId, unreadCount, notifications]);
 
-  const onRefresh = () => {
+  /* ── Mark single read on tap and navigate ── */
+  const handleNotifPress = useCallback(async item => {
+    if (!item?.id) return;
+
+    try {
+      // Mark as read if unread
+      if (!item.read) {
+        await firestore()
+          .collection('notifications')
+          .doc(item.id)
+          .update({ read: true });
+      }
+
+      // Navigate based on type (with safe navigation checks)
+      if (item.type === 'follow' && item.fromUserId && navigation) {
+        navigation.navigate('UserProfile', { userId: item.fromUserId });
+      } else if ((item.type === 'like' || item.type === 'comment' || item.type === 'reply') && item.postId) {
+        // Uncomment when PostDetail screen exists
+        // navigation.navigate('PostDetail', { postId: item.postId });
+        console.log('Navigate to post:', item.postId);
+      }
+    } catch (error) {
+      console.error('Error handling notification press:', error);
+      Alert.alert('Error', 'Failed to process notification');
+    }
+  }, [navigation]);
+
+  const onRefresh = useCallback(() => {
     setRefreshing(true);
-    setTimeout(() => setRefreshing(false), 1000);
-  };
+    // Simulate refresh
+    setTimeout(() => {
+      setRefreshing(false);
+    }, 1000);
+  }, []);
 
-  /* ── Filter ── */
-  const filtered = activeFilter === 'all'
-    ? notifications
-    : notifications.filter(n => n.type === activeFilter);
+  /* ── Filter notifications ── */
+  const filtered = React.useMemo(() => {
+    if (!notifications.length) return [];
+    
+    if (activeFilter === 'all') {
+      return notifications;
+    }
+    return notifications.filter(n => n.type === activeFilter);
+  }, [notifications, activeFilter]);
 
-  /* ── Group by date ── */
-  const groupedData = (() => {
+  /* ── Group by date (with safe date handling) ── */
+  const groupedData = React.useMemo(() => {
+    if (!filtered.length) return [];
+
     const groups = {};
+    
     filtered.forEach(item => {
-      if (!item.createdAt) return;
-      const date = item.createdAt.toDate ? item.createdAt.toDate() : new Date(item.createdAt);
-      const today = new Date();
-      const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+      if (!item?.createdAt) return;
 
-      let label;
-      if (date.toDateString() === today.toDateString()) label = 'Today';
-      else if (date.toDateString() === yesterday.toDateString()) label = 'Yesterday';
-      else label = date.toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' });
+      try {
+        let date;
+        if (item.createdAt?.toDate) {
+          date = item.createdAt.toDate();
+        } else if (item.createdAt instanceof Date) {
+          date = item.createdAt;
+        } else {
+          return; // Skip if invalid date
+        }
 
-      if (!groups[label]) groups[label] = [];
-      groups[label].push(item);
+        const today = new Date();
+        const yesterday = new Date(today);
+        yesterday.setDate(today.getDate() - 1);
+
+        let label;
+        if (date.toDateString() === today.toDateString()) {
+          label = 'Today';
+        } else if (date.toDateString() === yesterday.toDateString()) {
+          label = 'Yesterday';
+        } else {
+          label = date.toLocaleDateString('en-US', { 
+            month: 'short', 
+            day: 'numeric',
+            year: date.getFullYear() !== today.getFullYear() ? 'numeric' : undefined
+          });
+        }
+
+        if (!groups[label]) {
+          groups[label] = [];
+        }
+        groups[label].push(item);
+      } catch (err) {
+        console.error('Error grouping notification:', err);
+      }
     });
 
+    // Convert to FlatList data format
     const result = [];
     Object.entries(groups).forEach(([label, items]) => {
-      result.push({ type: 'header', label, id: `header-${label}` });
-      items.forEach((item, i) => result.push({ ...item, type: 'item', _index: i }));
+      result.push({ 
+        type: 'header', 
+        label, 
+        id: `header-${label}-${Date.now()}` 
+      });
+      
+      items.forEach((item, index) => {
+        result.push({ 
+          ...item, 
+          type: 'item', 
+          _index: index 
+        });
+      });
     });
+
     return result;
-  })();
+  }, [filtered]);
+
+  // Loading state
+  if (loading) {
+    return (
+      <SafeAreaView style={[styles.safe, styles.centerContent]}>
+        <StatusBar barStyle="light-content" backgroundColor="#0F0A1E" />
+        <LinearGradient
+          colors={['#0F0A1E', '#130D28', '#0F0A1E']}
+          style={StyleSheet.absoluteFill}
+        />
+        <ActivityIndicator size="large" color="#7C3AED" />
+        <Text style={styles.loadingText}>Loading activity...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  // Error state
+  if (error) {
+    return (
+      <SafeAreaView style={[styles.safe, styles.centerContent]}>
+        <StatusBar barStyle="light-content" backgroundColor="#0F0A1E" />
+        <LinearGradient
+          colors={['#0F0A1E', '#130D28', '#0F0A1E']}
+          style={StyleSheet.absoluteFill}
+        />
+        <Icon name="alert-circle-outline" size={50} color="#EF4444" />
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity 
+          style={styles.retryButton}
+          onPress={() => {
+            setError(null);
+            setLoading(true);
+            // Re-trigger the effect by forcing a re-render
+            setUserId(auth().currentUser?.uid);
+          }}
+        >
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      </SafeAreaView>
+    );
+  }
 
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
@@ -301,7 +535,10 @@ const ActivityScreen = ({ navigation }) => {
           {
             opacity: headerAnim,
             transform: [{
-              translateY: headerAnim.interpolate({ inputRange: [0, 1], outputRange: [-14, 0] }),
+              translateY: headerAnim.interpolate({ 
+                inputRange: [0, 1], 
+                outputRange: [-14, 0] 
+              }),
             }],
           },
         ]}
@@ -314,7 +551,11 @@ const ActivityScreen = ({ navigation }) => {
         </View>
 
         {unreadCount > 0 && (
-          <TouchableOpacity style={styles.markAllBtn} onPress={markAllRead} activeOpacity={0.75}>
+          <TouchableOpacity 
+            style={styles.markAllBtn} 
+            onPress={markAllRead} 
+            activeOpacity={0.75}
+          >
             <Icon name="check-all" size={15} color="#A78BFA" />
             <Text style={styles.markAllText}>Mark all read</Text>
           </TouchableOpacity>
@@ -327,12 +568,22 @@ const ActivityScreen = ({ navigation }) => {
       <Animated.View
         style={[
           styles.filterRow,
-          { opacity: filterAnim, transform: [{ translateY: filterAnim.interpolate({ inputRange: [0, 1], outputRange: [10, 0] }) }] },
+          { 
+            opacity: filterAnim, 
+            transform: [{ 
+              translateY: filterAnim.interpolate({ 
+                inputRange: [0, 1], 
+                outputRange: [10, 0] 
+              }) 
+            }] 
+          },
         ]}
       >
         {FILTERS.map(f => {
           const isActive = activeFilter === f.key;
-          const count    = f.key === 'all' ? unreadCount : notifications.filter(n => n.type === f.key && !n.read).length;
+          const count = f.key === 'all' 
+            ? unreadCount 
+            : notifications.filter(n => n.type === f.key && !n.read).length;
 
           return (
             <TouchableOpacity
@@ -351,7 +602,9 @@ const ActivityScreen = ({ navigation }) => {
               </Text>
               {count > 0 && (
                 <View style={styles.filterBadge}>
-                  <Text style={styles.filterBadgeText}>{count > 9 ? '9+' : count}</Text>
+                  <Text style={styles.filterBadgeText}>
+                    {count > 9 ? '9+' : count}
+                  </Text>
                 </View>
               )}
             </TouchableOpacity>
@@ -361,9 +614,9 @@ const ActivityScreen = ({ navigation }) => {
 
       {/* ── LIST ── */}
       <FlatList
-        data={loading ? [] : groupedData}
-        keyExtractor={item => item.id}
-        renderItem={({ item }) => {
+        data={groupedData}
+        keyExtractor={(item, index) => item?.id || `item-${index}`}
+        renderItem={({ item, index }) => {
           if (item.type === 'header') {
             return (
               <View style={styles.dateHeader}>
@@ -377,19 +630,11 @@ const ActivityScreen = ({ navigation }) => {
             <NotifItem
               item={item}
               onPress={handleNotifPress}
-              onMarkRead={id => firestore().collection('notifications').doc(id).update({ read: true })}
-              index={item._index || 0}
+              index={index}
             />
           );
         }}
-        ListEmptyComponent={
-          !loading ? <EmptyState filter={activeFilter} /> : (
-            <View style={styles.emptyWrap}>
-              <Icon name="loading" size={32} color="#3D2F6B" />
-              <Text style={styles.emptyTitle}>Loading activity…</Text>
-            </View>
-          )
-        }
+        ListEmptyComponent={<EmptyState filter={activeFilter} />}
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
@@ -412,15 +657,35 @@ const ActivityScreen = ({ navigation }) => {
    STYLES
 ───────────────────────────────────────────── */
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: '#0F0A1E' },
-
+  safe: { 
+    flex: 1, 
+    backgroundColor: '#0F0A1E' 
+  },
+  centerContent: {
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  
   bgBlob1: {
-    position: 'absolute', width: 280, height: 280, borderRadius: 140,
-    backgroundColor: '#4F46E5', opacity: 0.07, top: -70, right: -70,
+    position: 'absolute', 
+    width: 280, 
+    height: 280, 
+    borderRadius: 140,
+    backgroundColor: '#4F46E5', 
+    opacity: 0.07, 
+    top: -70, 
+    right: -70,
   },
   bgBlob2: {
-    position: 'absolute', width: 200, height: 200, borderRadius: 100,
-    backgroundColor: '#7C3AED', opacity: 0.06, bottom: 180, left: -60,
+    position: 'absolute', 
+    width: 200, 
+    height: 200, 
+    borderRadius: 100,
+    backgroundColor: '#7C3AED', 
+    opacity: 0.06, 
+    bottom: 180, 
+    left: -60,
   },
 
   /* ── Header ── */
@@ -682,6 +947,31 @@ const styles = StyleSheet.create({
     color: '#3D2F6B',
     textAlign: 'center',
     paddingHorizontal: 40,
+  },
+
+  /* Loading & Error states */
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#6B7280',
+  },
+  errorText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: '#EF4444',
+    textAlign: 'center',
+  },
+  retryButton: {
+    marginTop: 20,
+    paddingHorizontal: 24,
+    paddingVertical: 12,
+    backgroundColor: '#7C3AED',
+    borderRadius: 8,
+  },
+  retryButtonText: {
+    color: '#FFFFFF',
+    fontSize: 16,
+    fontWeight: '600',
   },
 });
 
